@@ -1,14 +1,16 @@
 """
 The conversation loop.
 
-Ask the model. If it wants to run a query, run it and hand back the rows. Repeat
-until it answers, or until we hit the cap. That is the entire product, and it is
-short on purpose -- this is the file most likely to be edited on a shared screen.
+Ask the model. If it wants to call a tool, call it and hand back the rows.
+Repeat until it answers, or until we hit the cap. That is the entire product,
+and it is short on purpose -- this is the file most likely to be edited on a
+shared screen.
 
-The trust property is not enforced here, it is structural: the model has exactly
-one tool, that tool only returns aggregated rows, and every query it ran is shown
-to the user next to the answer. If a number in the prose is wrong, the query that
-produced it is right there to check.
+The trust property is not enforced here, it is structural: every tool bottoms
+out in one SELECT against the governed view, tools only return aggregated rows,
+and the SQL each one ran is shown to the user next to the answer -- including the
+SQL the harness generated for a typed tool, which the model never saw. If a
+number in the prose is wrong, the query that produced it is right there to check.
 """
 
 from __future__ import annotations
@@ -19,18 +21,21 @@ from dataclasses import dataclass, field
 import router
 from llm import get_backend, get_llm
 from semantic import QueryRejected, Semantic
+from tools import ToolError, Tools
 
 MAX_STEPS = 5
 
 
 @dataclass
 class Step:
-    """One query the model ran. This is what the user sees to check the answer."""
+    """One tool call. This is what the user sees to check the answer."""
+    tool: str
     purpose: str
     sql: str
     ok: bool
     columns: list[str] = field(default_factory=list)
     rows: list[dict] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -49,15 +54,16 @@ class Agent:
         self.sem = sem or Semantic()
         self.backend = get_backend()
         self.llm = llm if llm is not None else get_llm()
-        self.system = router.system_prompt(self.sem)
-        self.tools = [router.query_tool()]
+        self.typed = Tools(self.sem)
+        self.tools = self.typed.specs()
+        self.system = router.system_prompt(self.sem, self.typed.months)
 
     def ask(self, question: str) -> Answer:
         if self.llm is None:
             return Answer(
                 question=question,
-                text=("No model is configured, so I cannot write SQL for this "
-                      "question. Set FRESHFLOW_BACKEND=bedrock or =local."),
+                text=("No model is configured, so nothing can map this question "
+                      "onto a tool. Set FRESHFLOW_BACKEND=bedrock or =local."),
                 backend=self.backend,
                 warnings=["Running without a model."],
             )
@@ -90,7 +96,7 @@ class Agent:
 
             results = []
             for use in reply["tool_uses"]:
-                step, payload = self._run(use["input"])
+                step, payload = self._run(use["name"], use["input"] or {})
                 steps.append(step)
                 if step.ok:
                     resolved = router.resolve(use["input"].get("measure"),
@@ -116,23 +122,28 @@ class Agent:
             warnings=warnings,
         )
 
-    def _run(self, args: dict) -> tuple[Step, dict]:
+    def _run(self, name: str, args: dict) -> tuple[Step, dict]:
         """
-        Run one query. A rejection is a result, not an exception -- the model
-        reads the reason and fixes its SQL, the same way a person would.
+        Run one tool call. A rejection is a result, not an exception -- the model
+        reads the reason and fixes the call, the same way a person would.
+
+        Both paths end in the same place: a Step carrying the SQL that ran, and
+        a payload carrying the rows plus which definitions were used.
         """
-        sql = (args.get("sql") or "").strip()
-        purpose = args.get("purpose") or "not stated"
         resolved = router.resolve(args.get("measure"), args.get("scope"))
+        purpose = args.get("purpose") or _purpose(name, args)
 
         try:
-            out = self.sem.run(sql, resolved["scope"], router.MAX_ROWS)
-        except QueryRejected as e:
-            step = Step(purpose=purpose, sql=sql, ok=False, error=str(e))
+            out = (self._query(args, resolved) if name == "query"
+                   else self.typed.call(name, args))
+        except (QueryRejected, ToolError) as e:
+            step = Step(tool=name, purpose=purpose, sql=args.get("sql") or "",
+                        ok=False, error=str(e))
             return step, {"ok": False, "error": str(e)}
 
-        step = Step(purpose=purpose, sql=sql, ok=True,
-                    columns=out["columns"], rows=out["rows"])
+        notes = out.get("notes", [])
+        step = Step(tool=name, purpose=purpose, sql=out["sql"], ok=True,
+                    columns=out["columns"], rows=out["rows"], notes=notes)
 
         payload = {
             "ok": True,
@@ -142,6 +153,29 @@ class Agent:
             "columns": out["columns"],
             "rows": out["rows"],
         }
-        if not out["rows"]:
-            payload["note"] = "No rows. Check the filters before reporting a zero."
+        for key in ("notes", "causes", "sorted_by"):
+            if out.get(key):
+                payload[key] = out[key]
         return step, payload
+
+    def _query(self, args: dict, resolved: dict) -> dict:
+        """The escape hatch. Raises QueryRejected, which _run turns into a result."""
+        sql = (args.get("sql") or "").strip()
+        out = self.sem.run(sql, resolved["scope"], router.MAX_ROWS)
+        notes = ["This ran your SQL directly, so it did not carry the reviewed "
+                 "shrink logic. The query text is shown to the user."]
+        if not out["rows"]:
+            notes.append("No rows. Check the filters before reporting a zero.")
+        return {"sql": sql, "columns": out["columns"], "rows": out["rows"], "notes": notes}
+
+
+def _purpose(name: str, args: dict) -> str:
+    """
+    A label for a typed call, which has no `purpose` argument to give one.
+
+    Built from the arguments rather than asked for, so the evidence panel reads
+    the same whether the model called a tool or wrote SQL.
+    """
+    bits = [k for k in ("period", "prior", "by", "dimension", "group_by") if args.get(k)]
+    detail = ", ".join(f"{k}={args[k]}" for k in bits)
+    return f"{name}({detail})" if detail else name

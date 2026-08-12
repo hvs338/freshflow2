@@ -136,13 +136,12 @@ function Sidebar({ meta, busy, onPick }) {
     )
   }
 
-  // Which backend answered is not a debug detail. `none` means no model ran at
-  // all and the deterministic keyword path produced the answer, which changes
-  // how much the phrasing should be trusted.
+  // Which backend answered is not a debug detail: it is what maps the question
+  // onto a tool, so `none` cannot answer at all.
   const backends = {
-    bedrock: ['Bedrock', 'Writes SQL via Bedrock Converse.'],
-    local: ['Anthropic API', 'Writes SQL via the Anthropic API.'],
-    none: ['No model', 'No model configured, so no SQL can be written.'],
+    bedrock: ['Bedrock', 'Picks tools via Bedrock Converse.'],
+    local: ['Anthropic API', 'Picks tools via the Anthropic API.'],
+    none: ['No model', 'No model configured, so no question can be routed.'],
   }
   const [label, note] = backends[meta.backend] || ['Unknown', '']
 

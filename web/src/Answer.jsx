@@ -65,13 +65,23 @@ function Evidence({ steps }) {
       {open && steps.map((step, i) => (
         <div key={i} className="step">
           <p className="step-purpose">
+            {/* Which tool ran matters: the named four carry the reviewed shrink
+                logic, `query` runs whatever SQL the model wrote. */}
+            <span className={`pill ${step.tool === 'query' ? 'pill-raw' : 'pill-tool'}`}>
+              {step.tool}
+            </span>
             {step.purpose}
             <span className={`pill ${step.ok ? 'pill-ok' : 'pill-error'}`}>
               {step.ok ? `${step.rows.length} rows` : 'rejected'}
             </span>
           </p>
-          <pre className="sql">{step.sql.trim()}</pre>
+          {step.sql && <pre className="sql">{step.sql.trim()}</pre>}
           {step.ok ? <ResultTable step={step} /> : <p className="notice">{step.error}</p>}
+          {step.notes?.length > 0 && (
+            <ul className="step-notes">
+              {step.notes.map((n, j) => <li key={j}>{n}</li>)}
+            </ul>
+          )}
         </div>
       ))}
     </section>

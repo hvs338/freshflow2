@@ -207,9 +207,10 @@ def get_backend() -> str:
     """
     Which backend this process will use: bedrock, local, or none.
 
-    Defaults to `none` so a clone with no credentials still starts. `none` is a
-    real mode, not a failure: agent.py falls back to the keyword router and the
-    metric layer answers as usual.
+    Defaults to `none` so a clone with no credentials still starts, but `none`
+    cannot answer: something has to map a question onto a tool. The metric layer
+    in metrics.py is callable without a model, and verify.py exercises it that
+    way, so a deterministic path is possible -- it just does not exist yet.
     """
     want = (os.environ.get("FRESHFLOW_BACKEND") or "none").strip().lower()
     if want not in ("bedrock", "local", "none"):

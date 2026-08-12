@@ -39,13 +39,15 @@ for question in sys.argv[1:] or QUESTIONS:
 
     for step in answer.steps:
         flag = "ok" if step.ok else "REJECTED"
-        print(f"\n  [{flag}] {step.purpose}")
+        print(f"\n  [{flag}] {step.tool}: {step.purpose}")
         for line in step.sql.strip().splitlines():
             print("      " + line.strip())
         if step.ok:
             print(f"      -> {len(step.rows)} row(s): {', '.join(step.columns)}")
         else:
             print(f"      -> {step.error}")
+        for note in step.notes:
+            print(f"      note: {note}")
 
     for choice in answer.choices:
         mark = " (default)" if choice["defaulted"] else ""

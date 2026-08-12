@@ -120,6 +120,60 @@ for sql, label in [
     except QueryRejected as e:
         print(f"  PASS  blocked {label}: {str(e)[:56]}")
 
+print("\n6. The named metric functions agree with the raw files")
+# Sections 1-5 check the view. These check the four functions built on top of
+# it, because those are what the typed tools answer with. Same pandas ground
+# truth, so a wrong SQL builder cannot hide behind a wrong view or vice versa.
+for month in ("2026-04", "2026-05", "2026-06"):
+    for scope in ("fresh", "all"):
+        depts = M.SCOPES[scope]["depts"]
+        row = M.shrink(sem, month, scope)["rows"][0]
+        for measure in ("units", "cost"):
+            check(f"M.shrink {month} {scope} {measure}",
+                  row[f"shrink_{measure}"], raw(month, depts, measure))
+
+cmp_row = M.compare(sem, "2026-06", "2026-05", "fresh")["rows"][0]
+for measure in ("units", "cost"):
+    check(f"M.compare delta {measure}", cmp_row[f"shrink_{measure}_delta"],
+          raw("2026-06", M.FRESH_DEPTS, measure) - raw("2026-05", M.FRESH_DEPTS, measure))
+
+# The whole point of carrying both measures: they disagree, in opposite
+# directions, over the same two months and the same rows.
+check("M.compare units pct", cmp_row["shrink_units_pct"] * 100, 12.68, tol=0.05)
+check("M.compare cost pct", cmp_row["shrink_cost_pct"] * 100, -0.57, tol=0.05)
+checks += 1
+if M.mix_effect(cmp_row) is None:
+    failures.append("mix_effect silent")
+    print("  FAIL  mix_effect did not flag the disagreement")
+else:
+    print("  PASS  mix_effect flags the units/cost disagreement")
+
+# rank: the top department by June unit shrink, against a pandas groupby.
+top = M.rank(sem, "2026-06", "dept", "units", "fresh", limit=1)["rows"][0]
+want = max(
+    ((d, raw("2026-06", [d], "units")) for d in M.FRESH_DEPTS), key=lambda x: x[1]
+)
+checks += 1
+print(f"  {'PASS' if top['dept'] == want[0] else 'FAIL'}  M.rank top dept "
+      f"{top['dept']} vs {want[0]}")
+if top["dept"] != want[0]:
+    failures.append("rank top dept")
+check("M.rank top value", top["shrink_units"], want[1])
+
+# drivers: the shares of the change must account for the whole change.
+dr = M.drivers(sem, "2026-06", "2026-05", "region", "units", "fresh",
+               {"dept": ["Dairy"]}, limit=10)
+check("M.drivers shares sum to 1", sum(c["share_of_change"] for c in dr["causes"]),
+      1.0, tol=0.001)
+lead = dr["causes"][0]
+checks += 1
+demand = lead["sold_units_delta"] < 0 and abs(lead["sold_units_delta"]) > abs(
+    lead["shipped_units_delta"]) * 1.5
+print(f"  {'PASS' if demand else 'FAIL'}  M.drivers reads {lead['group']} Dairy as "
+      f"a demand problem: {lead['cause']}")
+if not demand:
+    failures.append("drivers cause")
+
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:
     raise SystemExit("FAILED: " + ", ".join(failures))
