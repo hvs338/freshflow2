@@ -1,0 +1,201 @@
+item_id,description,dept,category,unit_of_measure,case_size,unit_cost
+10001,Bananas,Produce,Tropical,LB,36,0.28
+10002,Strawberries 1lb,Produce,Berries,LB,20,2.32
+10003,Blueberries 6oz,Produce,Berries,LB,18,2.84
+10004,Romaine Hearts 3ct,Produce,Salad,EA,18,3.34
+10005,Baby Spinach 5oz,Produce,Salad,LB,24,1.93
+10006,Avocados Hass,Produce,Tropical,LB,6,4.46
+10007,Roma Tomatoes,Produce,Tomatoes,LB,20,2.64
+10008,Honeycrisp Apples,Produce,Apples,LB,30,1.10
+10009,Gala Apples,Produce,Apples,LB,36,0.87
+10010,Navel Oranges,Produce,Citrus,EA,24,1.96
+10011,Green Grapes,Produce,Grapes,LB,4,4.49
+10012,Red Grapes,Produce,Grapes,LB,8,4.10
+10013,Broccoli Crowns,Produce,Vegetables,LB,30,1.47
+10014,Cauliflower,Produce,Vegetables,EA,20,1.65
+10015,Carrots 2lb,Produce,Vegetables,LB,10,3.80
+10016,Celery Stalk,Produce,Vegetables,EA,24,1.22
+10017,Cucumbers,Produce,Vegetables,LB,10,4.02
+10018,Bell Pepper Red,Produce,Peppers,EA,8,4.16
+10019,Bell Pepper Green,Produce,Peppers,EA,48,0.27
+10020,Yellow Onions 3lb,Produce,Onions,LB,20,0.71
+10021,Red Onions,Produce,Onions,EA,24,2.25
+10022,Russet Potatoes 5lb,Produce,Potatoes,LB,24,0.62
+10023,Sweet Potatoes,Produce,Potatoes,LB,48,0.50
+10024,Lemons,Produce,Citrus,EA,4,4.46
+10025,Limes,Produce,Citrus,LB,36,1.36
+10026,Cilantro Bunch,Produce,Herbs,EA,12,3.58
+10027,Green Onions,Produce,Herbs,LB,30,1.81
+10028,Mushrooms White 8oz,Produce,Vegetables,EA,15,3.40
+10029,Mushrooms Baby Bella,Produce,Vegetables,EA,24,1.93
+10030,Zucchini,Produce,Vegetables,EA,36,0.98
+10031,Asparagus,Produce,Vegetables,LB,40,0.46
+10032,Green Beans,Produce,Vegetables,EA,30,0.72
+10033,Sweet Corn Ear,Produce,Vegetables,LB,18,2.04
+10034,Watermelon Seedless,Produce,Melons,LB,8,3.70
+10035,Cantaloupe,Produce,Melons,EA,24,2.37
+10036,Pineapple,Produce,Tropical,LB,30,1.44
+10037,Mango,Produce,Tropical,EA,30,0.35
+10038,Kiwi,Produce,Tropical,EA,8,4.06
+10039,Peaches,Produce,Stone Fruit,LB,18,3.17
+10040,Nectarines,Produce,Stone Fruit,LB,12,3.07
+10041,Plums,Produce,Stone Fruit,LB,40,0.46
+10042,Cherries 1lb,Produce,Stone Fruit,LB,20,1.66
+10043,Raspberries 6oz,Produce,Berries,EA,6,4.44
+10044,Blackberries 6oz,Produce,Berries,LB,8,4.03
+10045,Caesar Salad Kit,Produce,Salad,LB,30,1.42
+10046,Whole Milk Gallon,Dairy,Milk,EA,6,6.51
+10047,2% Milk Gallon,Dairy,Milk,EA,10,6.22
+10048,Skim Milk Gallon,Dairy,Milk,EA,15,4.97
+10049,Heavy Cream Pint,Dairy,Cream,EA,24,3.43
+10050,Half & Half Quart,Dairy,Cream,EA,15,5.77
+10051,Butter Salted 1lb,Dairy,Butter,EA,30,3.12
+10052,Butter Unsalted 1lb,Dairy,Butter,EA,30,1.65
+10053,Large Eggs Dozen,Dairy,Eggs,EA,18,5.44
+10054,Large Eggs 18ct,Dairy,Eggs,EA,8,6.11
+10055,Greek Yogurt Plain 32oz,Dairy,Yogurt,EA,40,2.16
+10056,Greek Yogurt Vanilla,Dairy,Yogurt,EA,30,1.80
+10057,Strawberry Yogurt 6oz,Dairy,Yogurt,EA,24,2.96
+10058,Cottage Cheese 16oz,Dairy,Cheese,EA,10,6.12
+10059,Sour Cream 16oz,Dairy,Cream,EA,10,6.37
+10060,Cream Cheese 8oz,Dairy,Cheese,EA,15,5.63
+10061,Shredded Cheddar 8oz,Dairy,Cheese,EA,15,4.89
+10062,Shredded Mozzarella 8oz,Dairy,Cheese,EA,6,6.50
+10063,Sliced Swiss 8oz,Dairy,Cheese,EA,40,0.95
+10064,Sliced Provolone 8oz,Dairy,Cheese,EA,30,1.64
+10065,String Cheese 12ct,Dairy,Cheese,EA,15,5.07
+10066,Parmesan Grated 6oz,Dairy,Cheese,EA,10,5.64
+10067,Feta Crumbles 6oz,Dairy,Cheese,EA,36,2.05
+10068,Blue Cheese 5oz,Dairy,Cheese,EA,48,1.30
+10069,Brie Wheel 8oz,Dairy,Cheese,EA,15,5.43
+10070,Orange Juice 64oz,Dairy,Juice,EA,36,3.09
+10071,Apple Juice 64oz,Dairy,Juice,EA,30,3.09
+10072,Almond Milk 64oz,Dairy,Alt Milk,EA,12,6.05
+10073,Oat Milk 64oz,Dairy,Alt Milk,EA,30,3.79
+10074,Soy Milk 64oz,Dairy,Alt Milk,EA,8,6.50
+10075,Whipped Topping 8oz,Dairy,Cream,EA,10,5.87
+10076,Egg Whites 16oz,Dairy,Eggs,EA,30,2.44
+10077,Buttermilk Quart,Dairy,Milk,EA,10,6.38
+10078,Ricotta 15oz,Dairy,Cheese,EA,15,5.19
+10079,Mascarpone 8oz,Dairy,Cheese,EA,18,4.26
+10080,Kefir 32oz,Dairy,Yogurt,EA,36,3.10
+10081,Ribeye Steak,Meat,Beef,LB,4,13.50
+10082,NY Strip Steak,Meat,Beef,LB,10,12.30
+10083,Sirloin Steak,Meat,Beef,LB,24,8.46
+10084,Ground Beef 80/20,Meat,Beef,LB,12,12.62
+10085,Ground Beef 93/7,Meat,Beef,LB,30,7.47
+10086,Chuck Roast,Meat,Beef,LB,6,13.45
+10087,Beef Brisket,Meat,Beef,LB,36,3.05
+10088,Pork Chops,Meat,Pork,LB,6,13.80
+10089,Pork Tenderloin,Meat,Pork,LB,30,6.58
+10090,Baby Back Ribs,Meat,Pork,LB,30,8.23
+10091,Bacon Thick Cut,Meat,Pork,LB,24,7.07
+10092,Breakfast Sausage,Meat,Pork,LB,24,8.11
+10093,Italian Sausage,Meat,Pork,LB,24,7.48
+10094,Chicken Breast,Meat,Poultry,LB,6,13.91
+10095,Chicken Thighs,Meat,Poultry,LB,15,11.36
+10096,Chicken Drumsticks,Meat,Poultry,LB,18,8.88
+10097,Whole Chicken,Meat,Poultry,LB,15,9.32
+10098,Chicken Wings,Meat,Poultry,LB,30,4.61
+10099,Ground Turkey,Meat,Poultry,LB,24,4.53
+10100,Turkey Breast,Meat,Poultry,LB,24,7.38
+10101,Salmon Fillet,Meat,Seafood,LB,36,3.85
+10102,Tilapia Fillet,Meat,Seafood,LB,48,2.73
+10103,Cod Fillet,Meat,Seafood,LB,48,3.08
+10104,Shrimp Raw 16oz,Meat,Seafood,LB,12,12.38
+10105,Shrimp Cooked 16oz,Meat,Seafood,LB,6,13.19
+10106,Scallops,Meat,Seafood,LB,2,13.90
+10107,Lamb Chops,Meat,Lamb,LB,3,11.80
+10108,Veal Cutlet,Meat,Veal,LB,18,10.98
+10109,Ground Pork,Meat,Pork,LB,20,8.84
+10110,Hot Dogs 8ct,Meat,Pork,LB,15,9.82
+10111,White Bread Loaf,Bakery,Bread,EA,20,0.84
+10112,Wheat Bread Loaf,Bakery,Bread,EA,8,5.25
+10113,Sourdough Loaf,Bakery,Bread,EA,2,8.93
+10114,French Baguette,Bakery,Bread,EA,18,3.44
+10115,Ciabatta Loaf,Bakery,Bread,EA,15,3.83
+10116,Kaiser Rolls 6ct,Bakery,Rolls,EA,4,8.34
+10117,Hamburger Buns 8ct,Bakery,Rolls,EA,15,4.38
+10118,Hot Dog Buns 8ct,Bakery,Rolls,EA,8,6.44
+10119,Croissants 4ct,Bakery,Pastry,EA,24,1.72
+10120,Danish Assorted 4ct,Bakery,Pastry,EA,4,8.13
+10121,Blueberry Muffins 4ct,Bakery,Muffins,EA,12,5.56
+10122,Chocolate Muffins 4ct,Bakery,Muffins,EA,20,1.11
+10123,Bagels Plain 6ct,Bakery,Bagels,EA,15,4.22
+10124,Bagels Everything 6ct,Bakery,Bagels,EA,6,6.66
+10125,Donuts Glazed 6ct,Bakery,Donuts,EA,4,7.92
+10126,Donuts Assorted 12ct,Bakery,Donuts,EA,18,3.23
+10127,Chocolate Cake 8in,Bakery,Cake,EA,12,4.91
+10128,Carrot Cake 8in,Bakery,Cake,EA,12,4.38
+10129,Cheesecake 9in,Bakery,Cake,EA,6,7.34
+10130,Apple Pie 9in,Bakery,Pie,EA,8,4.91
+10131,Pumpkin Pie 9in,Bakery,Pie,EA,8,6.50
+10132,Cookies Chocolate Chip 12ct,Bakery,Cookies,EA,12,4.16
+10133,Cookies Sugar 12ct,Bakery,Cookies,EA,6,6.03
+10134,Brownies 6ct,Bakery,Cookies,EA,4,8.44
+10135,Cinnamon Rolls 4ct,Bakery,Pastry,EA,3,8.85
+10136,Turkey Breast Sliced,Deli,Sliced Meat,EA,20,4.15
+10137,Ham Sliced,Deli,Sliced Meat,EA,24,2.10
+10138,Roast Beef Sliced,Deli,Sliced Meat,LB,12,7.85
+10139,Salami Sliced,Deli,Sliced Meat,EA,10,6.96
+10140,Pepperoni Sliced,Deli,Sliced Meat,LB,4,10.56
+10141,Prosciutto 4oz,Deli,Sliced Meat,LB,3,9.40
+10142,Chicken Salad,Deli,Prepared Salads,EA,12,5.12
+10143,Tuna Salad,Deli,Prepared Salads,EA,3,10.38
+10144,Egg Salad,Deli,Prepared Salads,LB,12,7.97
+10145,Potato Salad,Deli,Prepared Salads,LB,20,4.80
+10146,Macaroni Salad,Deli,Prepared Salads,EA,10,7.00
+10147,Coleslaw,Deli,Prepared Salads,LB,15,4.83
+10148,Rotisserie Chicken,Deli,Hot Foods,EA,20,3.41
+10149,Chicken Tenders,Deli,Hot Foods,LB,4,10.13
+10150,Buffalo Wings,Deli,Hot Foods,EA,15,3.79
+10151,Meatballs,Deli,Hot Foods,EA,24,2.02
+10152,Lasagna Tray,Deli,Entrees,EA,10,7.09
+10153,Mac & Cheese Tray,Deli,Entrees,EA,20,5.21
+10154,Sushi California Roll,Deli,Sushi,LB,18,5.24
+10155,Sushi Spicy Tuna Roll,Deli,Sushi,LB,20,3.65
+10156,Hummus 10oz,Deli,Dips,LB,6,9.60
+10157,Guacamole 8oz,Deli,Dips,LB,18,2.16
+10158,Salsa Fresh 16oz,Deli,Dips,EA,8,8.41
+10159,Cheese Tray,Deli,Party Trays,EA,4,10.32
+10160,Veggie Tray,Deli,Party Trays,LB,4,10.86
+10161,Cereal Toasted Oats,Grocery,Cereal,EA,24,5.45
+10162,Cereal Bran Flakes,Grocery,Cereal,EA,48,0.91
+10163,Pasta Spaghetti 1lb,Grocery,Pasta,EA,48,2.42
+10164,Pasta Penne 1lb,Grocery,Pasta,EA,6,7.62
+10165,Marinara Sauce 24oz,Grocery,Sauce,EA,48,1.99
+10166,Alfredo Sauce 15oz,Grocery,Sauce,EA,18,6.08
+10167,Rice White 2lb,Grocery,Rice,EA,40,3.62
+10168,Rice Brown 2lb,Grocery,Rice,EA,15,6.59
+10169,Black Beans Canned,Grocery,Canned,EA,40,2.89
+10170,Kidney Beans Canned,Grocery,Canned,EA,36,2.68
+10171,Diced Tomatoes Canned,Grocery,Canned,EA,8,7.09
+10172,Tomato Paste 6oz,Grocery,Canned,EA,40,0.82
+10173,Chicken Broth 32oz,Grocery,Broth,EA,48,2.14
+10174,Beef Broth 32oz,Grocery,Broth,EA,24,4.79
+10175,Peanut Butter 16oz,Grocery,Spreads,EA,18,6.43
+10176,Grape Jelly 18oz,Grocery,Spreads,EA,40,3.11
+10177,Honey 12oz,Grocery,Spreads,EA,18,6.21
+10178,Olive Oil 17oz,Grocery,Oil,EA,30,4.50
+10179,Vegetable Oil 48oz,Grocery,Oil,EA,48,2.97
+10180,Flour All Purpose 5lb,Grocery,Baking,EA,20,4.97
+10181,Sugar Granulated 4lb,Grocery,Baking,EA,6,7.28
+10182,Brown Sugar 2lb,Grocery,Baking,EA,24,5.04
+10183,Baking Soda 16oz,Grocery,Baking,EA,40,3.19
+10184,Salt 26oz,Grocery,Spices,EA,15,6.72
+10185,Black Pepper 4oz,Grocery,Spices,EA,40,3.48
+10186,Ketchup 32oz,Grocery,Condiments,EA,12,6.53
+10187,Mustard 20oz,Grocery,Condiments,EA,12,6.84
+10188,Mayonnaise 30oz,Grocery,Condiments,EA,36,2.69
+10189,Ranch Dressing 16oz,Grocery,Condiments,EA,18,5.14
+10190,Italian Dressing 16oz,Grocery,Condiments,EA,30,3.49
+10191,Potato Chips 8oz,Grocery,Snacks,EA,30,2.84
+10192,Tortilla Chips 12oz,Grocery,Snacks,EA,36,3.70
+10193,Pretzels 16oz,Grocery,Snacks,EA,30,3.33
+10194,Crackers Saltine 16oz,Grocery,Snacks,EA,36,4.17
+10195,Granola Bars 8ct,Grocery,Snacks,EA,30,3.93
+10196,Coffee Ground 12oz,Grocery,Beverages,EA,48,0.81
+10197,Tea Bags 40ct,Grocery,Beverages,EA,15,5.90
+10198,Soda Cola 12pk,Grocery,Beverages,EA,30,4.39
+10199,Sparkling Water 12pk,Grocery,Beverages,EA,40,2.44
+10200,Paper Towels 6pk,Grocery,Household,EA,15,5.53
