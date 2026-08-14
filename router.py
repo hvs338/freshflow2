@@ -7,9 +7,15 @@ tune during a demo -- the prompt -- is not tangled up with the loop that runs
 it. The four typed tools live in tools.py.
 
 The prompt is generated from the data, not typed out by hand: real department
-names, real regions, the real date range, the real column list. The model
-therefore cannot invent a "Southeast" region, because it has been told the
-three that exist.
+names, real regions, the real date range, and the data model from metrics.py.
+The model therefore cannot invent a "Southeast" region, because it has been
+told the three that exist -- and it does not have to guess whether `net_sales`
+is retail or cost, because that is written down.
+
+That claim used to be false. The prompt shipped a bare comma-separated column
+list and no dimension values at all, and the model found out "Southeast" did not
+exist by getting zero rows back. If you change what goes into the prompt, check
+this docstring still describes it.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ def system_prompt(sem, months: list[str]) -> str:
     """The whole prompt. Built at startup, from the live schema."""
     start, end = sem.date_range()
     metrics = "\n".join(f"  {name:<22} {sql}" for name, sql in M.METRICS.items())
-    columns = ", ".join(sem.columns())
+    data_model = M.data_model(sem)
 
     return f"""You answer questions about shrink and sales for merchandising and \
 operations users at Meridian Markets, a grocery chain. You answer them with \
@@ -59,16 +65,16 @@ latest complete month. Do not stop to ask which month -- use it and name it in
 your answer. Ask only when the question needs a month this extract does not have.
 
 THE TABLE (what `query` reads)
-`{VIEW}` -- one row per store-item-day, {start} to {end}.
-Columns: {columns}
+`{VIEW}` -- one row per store-item-day, {start} to {end}. It is the only table
+you can name, and it already carries every item attribute, so you never join.
 
-`date` is a real DATE, so any grain works: date_trunc('week', date),
-strftime(date, '%Y-%m'), or the raw day.
+{data_model}
 
 WHAT SHRINK IS
 {M.SHRINK_DEFINITION}.
-Shrink is not a stored column. Use these definitions so every answer means the
-same thing:
+The cases-to-units conversion is already applied in `shipped_units`; there is no
+`cases_received` or `case_size` column to multiply. Shrink is not a stored
+column either. Use these definitions so every answer means the same thing:
 
 {metrics}
 
@@ -101,8 +107,9 @@ RULES
   say which one the data supports.
 - Nothing here records a cause. You can say where a change sits; confirming why
   needs the category team.
-- If the question needs data this table does not have -- margin, forecasts,
-  inventory on hand, anything outside {start} to {end} -- say so plainly.
+- If the question needs data this table does not have -- forecasts, inventory on
+  hand, labour, waste reasons, anything outside {start} to {end} -- say so
+  plainly. Margin is NOT in that list: net_sales - sold_cost gives it.
 - Be concise and lead with the answer."""
 
 

@@ -18,16 +18,25 @@ FRESHFLOW_BACKEND=bedrock python api.py       # http://localhost:8501
 development, `cd web && npm run dev` serves on 5173 and proxies `/api` to 8501.
 `npm run build` lets `api.py` serve the UI itself, so the demo is one port.
 
-## The six files
+## The seven files
+
+Three of them are the spine, and they split cleanly into meaning, query, and
+execution:
 
 | File | Job | Lines |
 |---|---|---|
-| `metrics.py` | What the numbers mean, and the four questions worth naming. | ~300 |
+| `metrics.py` | **Meaning.** What the numbers and columns mean. No imports, no database. | ~195 |
+| `queries.py` | **Query.** The SQL for the four named questions, built from those definitions. | ~230 |
+| `semantic.py` | **Execution.** One view everything reads, and the gate in front of it. | ~195 |
 | `tools.py` | What the model may ask for, and every argument checked first. | ~330 |
-| `semantic.py` | One view everything reads, and the gate in front of it. | ~190 |
-| `router.py` | The prompt, the SQL escape hatch, the disclosure. | ~180 |
-| `agent.py` | The conversation loop. Ask, call the tool, feed it back, repeat. | ~170 |
+| `router.py` | The prompt, the SQL escape hatch, the disclosure. | ~190 |
+| `agent.py` | The conversation loop. Ask, call the tool, feed it back, repeat. | ~175 |
 | `llm.py` | Bedrock or Anthropic behind one interface, so nothing else branches. | ~200 |
+
+The dependency runs one way — `semantic` and `queries` both read `metrics`,
+which reads nothing — but the calls run the other: `queries.shrink(sem, ...)`
+takes the view as an argument rather than importing it. That is why `metrics.py`
+can be imported with no database at all, and why there is no import cycle.
 
 Plus `api.py` (HTTP), `verify.py` (correctness), `demo.py` (terminal), `web/`
 (React).
@@ -74,6 +83,15 @@ result, not raised — it reads the reason and fixes its SQL.
 into the prompt verbatim and interpolated into every typed tool's SQL, rather
 than whatever the model improvises each time.
 
+**The data model is stated, not implied.** A column list is not a data model.
+`metrics.COLUMNS` says what each column means — `net_sales` is the only retail
+column, the cost columns are cost, `unit_cost` is one stable value per item —
+and `data_model()` appends every value each dimension actually takes, read from
+the view at startup so it cannot go stale. The typed tools don't need it,
+because their arguments are validated against the data. `query` does: it writes
+SQL from scratch, so what isn't in the prompt isn't known. `verify.py` asserts
+the described columns and the real columns are the same set.
+
 **Arguments are checked before any SQL is built.** A month outside the extract,
 an unresolvable region, a dimension that does not exist — each comes back as an
 error the model reads and corrects. A filter is never silently dropped, because
@@ -95,6 +113,15 @@ substance of the assignment:
    +12.7% while cost shrink is −0.6%.
 2. **Scope.** Ops means the five fresh departments and excludes Grocery. Not
    everyone does. Grocery is about 4% of unit shrink.
+
+There is arguably a third that the dictionary does not call out. 70 of the 200
+items are sold by the pound and 130 by the each, and `shrink_units` adds them
+together — June's 61,782 fresh units is 34,576 eaches plus 27,206 pounds. That
+is Meridian's own definition, so the number is not wrong, but it is not a count
+of things either. `unit_of_measure` is a dimension you can filter and group by,
+the prompt says the mixing happens, and `verify.py` asserts the split
+reconciles. It is surfaced rather than resolved, because resolving it would mean
+changing what shrink means.
 
 Neither is resolved silently. `measure` and `scope` are nullable arguments on
 every tool, and null is the expected answer when the user did not say. Scope is

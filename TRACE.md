@@ -35,9 +35,9 @@ flowchart TB
     REG --> BASE["daily_facts — FULL OUTER JOIN on (date, store_id, item_id)<br/>zero-filled, 181,323 rows<br/>semantic.py:76"]
     BASE --> BIND["daily — temp view, rebound per query to the scope's depts<br/>semantic.py:118"]
     MET["metrics.py<br/>DERIVED + METRICS + SCOPES"] --> BASE
-    MET --> PROMPT["system prompt, 4,608 chars<br/>built from the live schema<br/>router.py:24"]
+    MET --> PROMPT["system prompt, 7,943 chars<br/>column meanings + every dimension value,<br/>read from the data<br/>router.py:24"]
     MET --> SPECS["5 tool specs<br/>tools.py:191"]
-    BASE --> VOCAB["vocab cached for validation<br/>dept 6 · category 58 · region 3<br/>banner 2 · store_id 10 · description 200"]
+    BASE --> VOCAB["vocab cached for validation<br/>dept 6 · category 58 · region 3 · banner 2<br/>store_id 10 · description 200 · uom 2"]
     BASE --> MONTHS["complete months<br/>2026-04, 2026-05, 2026-06"]
 ```
 
@@ -51,6 +51,18 @@ Captured at boot:
 | Rows that shipped and never sold | 199 — *these are the highest-shrink rows, and an inner join would drop every one* |
 | Tools offered | `shrink`, `compare`, `rank`, `drivers`, `query` |
 | Queries run before the first question | 1 (the month list) |
+| Prompt | 7,943 chars, all generated |
+
+**The prompt carries the data model, not just a column list.** `metrics.COLUMNS`
+holds one written line per column — that `net_sales` is the only retail column
+while `sold_cost` and `shipped_cost` are cost dollars, that `unit_cost` is one
+stable value per item, that units mix pounds and eaches — and
+`metrics.data_model()` appends every value each dimension actually takes, read
+from the view at startup. The typed tools do not need this, because their
+arguments are validated against the data and a bad one comes back as an error.
+`query` does: it writes SQL from scratch, so what is not in the prompt is not
+known. `verify.py` asserts the described columns and the real columns are the
+same set, so the description cannot drift.
 
 **Why `daily_facts` has more rows than `sales_daily`.** Sales omits
 store-item-days with no movement rather than zero-filling them. The full outer
@@ -70,7 +82,7 @@ flowchart TB
     LOOP --> MODEL{"model picks a tool<br/>llm.converse<br/>agent.py:86"}
 
     MODEL -->|"Path A<br/>compare / shrink / rank / drivers"| VAL["validate every argument<br/>tools.py:191"]
-    VAL --> BUILD["harness writes the SQL<br/>metrics._compare_sql<br/>metrics.py:174"]
+    VAL --> BUILD["harness writes the SQL<br/>queries._compare_sql<br/>queries.py:83"]
 
     MODEL -->|"Path B<br/>query"| RAW["model's SQL string<br/>agent.py:161"]
 
@@ -123,19 +135,19 @@ Real rejections, captured from the same run:
 |---|---|
 | `compare(period="2026-01")` | `2026-01 is not a complete month in this extract. Available: 2026-04, 2026-05, 2026-06.` |
 | `shrink(filters={"region": ["Southeast"]})` | `No region matching: Southeast. Valid values: Midwest, Northeast, West.` |
-| `rank(by="colour")` | `by must be one of dept, category, region, banner, store_id, description; got 'colour'.` |
+| `rank(by="colour")` | `by must be one of dept, category, region, banner, store_id, description, unit_of_measure; got 'colour'.` |
 
 An unresolvable filter is an **error, not a drop**. A silently dropped filter is
 a number computed over the wrong rows that still looks right — the worst
 possible failure for this product. Errors go back to the model as results, so it
 reads the reason and corrects itself rather than the request failing.
 
-This is also what makes the string interpolation in `metrics.py` safe: nothing
+This is also what makes the string interpolation in `queries.py` safe: nothing
 reaches a SQL builder that did not first match a real value in the data.
 
 ### A3 · The harness writes the SQL
 
-`metrics.compare` → `_compare_sql` ([metrics.py:174](metrics.py#L174)) produced
+`queries.compare` → `_compare_sql` ([queries.py:83](queries.py#L83)) produced
 2,186 characters. The model never saw it. Abridged:
 
 ```sql
@@ -174,7 +186,7 @@ Three things worth pointing at:
 2. **The pivot is in SQL, not Python.** Deltas and percentages are computed by
    the query whose text is shown to the user, so there is no arithmetic
    happening off-screen between the rows and the prose.
-3. **It is reproducible.** Calling `metrics._compare_sql("2026-06", "2026-05")`
+3. **It is reproducible.** Calling `queries._compare_sql("2026-06", "2026-05")`
    directly returns a byte-identical 2,186-character string. Verified in the
    capture: `identical_to_builder_output: true`.
 
@@ -225,7 +237,7 @@ Plus two **notes** the harness attached without being asked:
 > gap is mix -- the average cost of a shrunk unit fell from $3.29 to $2.90.
 > Report both, and say the choice of measure changes the conclusion.`
 
-That second note is `metrics.mix_effect` reading the row it just computed. It is
+That second note is `queries.mix_effect` reading the row it just computed. It is
 the system telling the model something the model did not think to ask — and it
 fires on a rule, so it cannot be forgotten on a bad day.
 
@@ -304,7 +316,7 @@ reader should know which kind of answer they are looking at.
 
 | | Path A (typed tool) | Path B (`query`) |
 |---|---|---|
-| Who chose the arithmetic | `metrics.py`, reviewed and tested | the model, this turn |
+| Who chose the arithmetic | `queries.py`, reviewed and tested | the model, this turn |
 | Who wrote the SQL | the harness | the model |
 | Arguments validated against data | yes — month, filters, dimensions | n/a, there are none |
 | Scope enforced by view binding | yes | yes |
@@ -334,7 +346,7 @@ and the names still turn up in conversation:
 ## How to re-run this trace
 
 ```bash
-python verify.py                                   # 42 checks, no model needed
+python verify.py                                   # 46 checks, no model needed
 FRESHFLOW_BACKEND=bedrock python demo.py "Is shrink up or down versus last month?"
 FRESHFLOW_BACKEND=bedrock python demo.py "How did strawberry sales trend over the three months?"
 ```

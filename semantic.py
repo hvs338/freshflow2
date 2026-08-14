@@ -100,7 +100,11 @@ class Semantic:
                 COALESCE(sh.item_id, sa.item_id)    AS item_id,
                 COALESCE(sh.banner, sa.banner)      AS banner,
                 COALESCE(sh.region, sa.region)      AS region,
-                i.dept, i.category, i.description, i.unit_cost,
+                i.dept, i.category, i.description,
+                -- LB or EA. Carried because units are not comparable across it:
+                -- summing shrink units adds pounds to eaches, which is Meridian's
+                -- own definition but is not visible unless this column is here.
+                i.unit_of_measure, i.unit_cost,
                 COALESCE(sh.shipped_units, 0)       AS shipped_units,
                 COALESCE(sh.shipped_cost, 0.0)      AS shipped_cost,
                 COALESCE(sa.sold_units, 0)          AS sold_units,

@@ -16,6 +16,7 @@ Run: python verify.py
 import pandas as pd
 
 import metrics as M
+import queries as Q
 from semantic import Semantic
 
 items = pd.read_csv("data/items.csv")
@@ -127,52 +128,92 @@ print("\n6. The named metric functions agree with the raw files")
 for month in ("2026-04", "2026-05", "2026-06"):
     for scope in ("fresh", "all"):
         depts = M.SCOPES[scope]["depts"]
-        row = M.shrink(sem, month, scope)["rows"][0]
+        row = Q.shrink(sem, month, scope)["rows"][0]
         for measure in ("units", "cost"):
-            check(f"M.shrink {month} {scope} {measure}",
+            check(f"Q.shrink {month} {scope} {measure}",
                   row[f"shrink_{measure}"], raw(month, depts, measure))
 
-cmp_row = M.compare(sem, "2026-06", "2026-05", "fresh")["rows"][0]
+cmp_row = Q.compare(sem, "2026-06", "2026-05", "fresh")["rows"][0]
 for measure in ("units", "cost"):
-    check(f"M.compare delta {measure}", cmp_row[f"shrink_{measure}_delta"],
+    check(f"Q.compare delta {measure}", cmp_row[f"shrink_{measure}_delta"],
           raw("2026-06", M.FRESH_DEPTS, measure) - raw("2026-05", M.FRESH_DEPTS, measure))
 
 # The whole point of carrying both measures: they disagree, in opposite
 # directions, over the same two months and the same rows.
-check("M.compare units pct", cmp_row["shrink_units_pct"] * 100, 12.68, tol=0.05)
-check("M.compare cost pct", cmp_row["shrink_cost_pct"] * 100, -0.57, tol=0.05)
+check("Q.compare units pct", cmp_row["shrink_units_pct"] * 100, 12.68, tol=0.05)
+check("Q.compare cost pct", cmp_row["shrink_cost_pct"] * 100, -0.57, tol=0.05)
 checks += 1
-if M.mix_effect(cmp_row) is None:
+if Q.mix_effect(cmp_row) is None:
     failures.append("mix_effect silent")
     print("  FAIL  mix_effect did not flag the disagreement")
 else:
     print("  PASS  mix_effect flags the units/cost disagreement")
 
 # rank: the top department by June unit shrink, against a pandas groupby.
-top = M.rank(sem, "2026-06", "dept", "units", "fresh", limit=1)["rows"][0]
+top = Q.rank(sem, "2026-06", "dept", "units", "fresh", limit=1)["rows"][0]
 want = max(
     ((d, raw("2026-06", [d], "units")) for d in M.FRESH_DEPTS), key=lambda x: x[1]
 )
 checks += 1
-print(f"  {'PASS' if top['dept'] == want[0] else 'FAIL'}  M.rank top dept "
+print(f"  {'PASS' if top['dept'] == want[0] else 'FAIL'}  Q.rank top dept "
       f"{top['dept']} vs {want[0]}")
 if top["dept"] != want[0]:
     failures.append("rank top dept")
-check("M.rank top value", top["shrink_units"], want[1])
+check("Q.rank top value", top["shrink_units"], want[1])
 
 # drivers: the shares of the change must account for the whole change.
-dr = M.drivers(sem, "2026-06", "2026-05", "region", "units", "fresh",
+dr = Q.drivers(sem, "2026-06", "2026-05", "region", "units", "fresh",
                {"dept": ["Dairy"]}, limit=10)
-check("M.drivers shares sum to 1", sum(c["share_of_change"] for c in dr["causes"]),
+check("Q.drivers shares sum to 1", sum(c["share_of_change"] for c in dr["causes"]),
       1.0, tol=0.001)
 lead = dr["causes"][0]
 checks += 1
 demand = lead["sold_units_delta"] < 0 and abs(lead["sold_units_delta"]) > abs(
     lead["shipped_units_delta"]) * 1.5
-print(f"  {'PASS' if demand else 'FAIL'}  M.drivers reads {lead['group']} Dairy as "
+print(f"  {'PASS' if demand else 'FAIL'}  Q.drivers reads {lead['group']} Dairy as "
       f"a demand problem: {lead['cause']}")
 if not demand:
     failures.append("drivers cause")
+
+print("\n7. The data model the prompt states is the data model that exists")
+# The prompt tells the SQL-writing model what the columns mean. These check the
+# three claims in it that would silently corrupt an answer if they were wrong.
+
+# Units mix LB and EA. The split must reconcile to the headline number, or the
+# warning in the prompt is describing a decomposition that does not hold.
+split = Q.shrink(sem, "2026-06", "fresh", group_by=("unit_of_measure",))["rows"]
+total = Q.shrink(sem, "2026-06", "fresh")["rows"][0]["shrink_units"]
+check("LB + EA reconcile to total units", sum(r["shrink_units"] for r in split), total)
+print(f"  INFO  {' + '.join(f'''{r['unit_of_measure']} {r['shrink_units']:,}''' for r in split)}"
+      f" = {total:,} units")
+
+# net_sales is the only retail column; every other dollar column is cost. If
+# that is backwards, margin comes out negative and the prompt is lying.
+m = sem.run("SELECT SUM(net_sales) rev, SUM(sold_cost) cogs, "
+            "SUM(net_sales - sold_cost) margin FROM daily "
+            "WHERE strftime(date,'%Y-%m') = '2026-06'", "fresh")["rows"][0]
+checks += 1
+sane = m["margin"] > 0 and 0.15 < m["margin"] / m["rev"] < 0.55
+print(f"  {'PASS' if sane else 'FAIL'}  margin is derivable and plausible: "
+      f"${m['margin']:,.0f} on ${m['rev']:,.0f} = {m['margin'] / m['rev']:.1%}")
+if not sane:
+    failures.append("margin")
+
+# unit_cost is stated as one value per item, stable across the window. Cost
+# columns are meaningless as time series if that is false.
+n = sem.run("SELECT MAX(n) m FROM (SELECT item_id, COUNT(DISTINCT unit_cost) n "
+            "FROM daily GROUP BY 1)", "all")["rows"][0]["m"]
+check("unit_cost is one value per item", n, 1, tol=0)
+
+# Every column the prompt describes must exist, and every column that exists
+# must be described. A drifted data model is worse than none.
+described, actual = set(M.COLUMNS), set(sem.columns())
+checks += 1
+if described == actual:
+    print(f"  PASS  data model describes all {len(actual)} columns, no extras")
+else:
+    failures.append("data model drift")
+    print(f"  FAIL  data model drift: missing {actual - described}, stale {described - actual}")
 
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:

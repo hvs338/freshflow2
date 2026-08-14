@@ -1,7 +1,7 @@
 """
 What the model is allowed to ask for.
 
-Five tools. Four of them are the named questions from metrics.py -- how much,
+Five tools. Four of them are the named questions from queries.py -- how much,
 up or down, top N, and why -- and the fifth is `query`, the SQL escape hatch for
 everything they do not express. The typed four carry the reviewed shrink logic;
 `query` does not, which is why the prompt tells the model to prefer them.
@@ -18,13 +18,14 @@ Two properties are load-bearing:
     filter quietly dropped, which would mean a number computed over the wrong
     rows while still looking right.
 
-That second property is also what makes the string interpolation in metrics.py
+That second property is also what makes the string interpolation in queries.py
 safe: nothing reaches a SQL builder that did not first match a real value.
 """
 
 from __future__ import annotations
 
 import metrics as M
+import queries as Q
 
 # Hoisted here rather than written twice: `query` in router.py takes the same
 # two arguments, and the wording of "null is a valid answer" is the grounding
@@ -167,7 +168,7 @@ class ToolError(Exception):
 
 class Tools:
     """
-    Validate arguments against the data, then call the metric layer.
+    Validate arguments against the data, then call the query layer.
 
     Scope is deliberately not handled here. It stays enforced where it already
     was -- `Semantic.run` rebinds `daily` to the right departments before every
@@ -330,7 +331,7 @@ class Tools:
         filters = self._filters(a.get("filters"))
         group_by = (self._dimension(a["group_by"], "group_by"),) if a.get("group_by") else ()
 
-        out = M.shrink(self.sem, period, scope or M.DEFAULT_SCOPE, filters, group_by)
+        out = Q.shrink(self.sem, period, scope or M.DEFAULT_SCOPE, filters, group_by)
         return _result(out, measure, scope, [])
 
     def _compare(self, a: dict) -> dict:
@@ -340,12 +341,12 @@ class Tools:
         filters = self._filters(a.get("filters"))
         group_by = (self._dimension(a["group_by"], "group_by"),) if a.get("group_by") else ()
 
-        out = M.compare(self.sem, period, prior, scope or M.DEFAULT_SCOPE, filters, group_by)
+        out = Q.compare(self.sem, period, prior, scope or M.DEFAULT_SCOPE, filters, group_by)
         notes = [f"{period} versus {prior}."]
         # The planted story: units and cost disagree May to June. Surface it
         # rather than hoping the model spots it in four decimal places.
         if not group_by and out["rows"]:
-            mix = M.mix_effect(out["rows"][0])
+            mix = Q.mix_effect(out["rows"][0])
             if mix:
                 notes.append(mix)
         return _result(out, measure, scope, notes)
@@ -358,7 +359,7 @@ class Tools:
         notes: list[str] = []
         used = self._sorted_measure(measure, "Ranked", notes)
 
-        out = M.rank(self.sem, period, by, used, scope or M.DEFAULT_SCOPE, filters,
+        out = Q.rank(self.sem, period, by, used, scope or M.DEFAULT_SCOPE, filters,
                      _int(a.get("limit"), 10), bool(a.get("ascending")))
         return _result(out, measure, scope, notes, sorted_by=M.MEASURES[used]["metric"])
 
@@ -381,7 +382,7 @@ class Tools:
                 f"dimension to learn anything."
             )
 
-        out = M.drivers(self.sem, period, prior, dimension, used,
+        out = Q.drivers(self.sem, period, prior, dimension, used,
                         scope or M.DEFAULT_SCOPE, filters, _int(a.get("limit"), 5))
         return _result(out, measure, scope, notes, causes=out["causes"])
 
