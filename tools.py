@@ -76,7 +76,7 @@ def _month(what: str) -> dict:
     return {"type": "string", "description": what + " Format YYYY-MM."}
 
 
-SCHEMAS = {
+TOOL_DEFINITIONS = {
     "shrink": {
         "description": (
             "Total shrink for one month, optionally split by one dimension. "
@@ -186,7 +186,7 @@ class Tools:
 
         return [
             {"name": n, "description": s["description"], "schema": s["schema"]}
-            for n, s in SCHEMAS.items()
+            for n, s in TOOL_DEFINITIONS.items()
         ] + [router.query_tool()]
 
     def call(self, name: str, args: dict) -> dict:
@@ -325,21 +325,21 @@ class Tools:
 
     # -- the four tools -----------------------------------------------------
 
-    def _shrink(self, a: dict) -> dict:
-        period = self._period(a.get("period"), "period")
-        measure, scope = self._measure(a.get("measure")), self._scope(a.get("scope"))
-        filters = self._filters(a.get("filters"))
-        group_by = (self._dimension(a["group_by"], "group_by"),) if a.get("group_by") else ()
+    def _shrink(self, tool_input: dict) -> dict:
+        period = self._period(tool_input.get("period"), "period")
+        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
+        filters = self._filters(tool_input.get("filters"))
+        group_by = (self._dimension(tool_input["group_by"], "group_by"),) if tool_input.get("group_by") else ()
 
         out = Q.shrink(self.sem, period, scope or M.DEFAULT_SCOPE, filters, group_by)
         return _result(out, measure, scope, [])
 
-    def _compare(self, a: dict) -> dict:
-        period = self._period(a.get("period"), "period")
-        prior = self._prior(a.get("prior"), period)
-        measure, scope = self._measure(a.get("measure")), self._scope(a.get("scope"))
-        filters = self._filters(a.get("filters"))
-        group_by = (self._dimension(a["group_by"], "group_by"),) if a.get("group_by") else ()
+    def _compare(self, tool_input: dict) -> dict:
+        period = self._period(tool_input.get("period"), "period")
+        prior = self._prior(tool_input.get("prior"), period)
+        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
+        filters = self._filters(tool_input.get("filters"))
+        group_by = (self._dimension(tool_input["group_by"], "group_by"),) if tool_input.get("group_by") else ()
 
         out = Q.compare(self.sem, period, prior, scope or M.DEFAULT_SCOPE, filters, group_by)
         notes = [f"{period} versus {prior}."]
@@ -351,24 +351,24 @@ class Tools:
                 notes.append(mix)
         return _result(out, measure, scope, notes)
 
-    def _rank(self, a: dict) -> dict:
-        period = self._period(a.get("period"), "period")
-        by = self._dimension(a.get("by"), "by")
-        measure, scope = self._measure(a.get("measure")), self._scope(a.get("scope"))
-        filters = self._filters(a.get("filters"))
+    def _rank(self, tool_input: dict) -> dict:
+        period = self._period(tool_input.get("period"), "period")
+        by = self._dimension(tool_input.get("by"), "by")
+        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
+        filters = self._filters(tool_input.get("filters"))
         notes: list[str] = []
         used = self._sorted_measure(measure, "Ranked", notes)
 
         out = Q.rank(self.sem, period, by, used, scope or M.DEFAULT_SCOPE, filters,
-                     _int(a.get("limit"), 10), bool(a.get("ascending")))
+                     _int(tool_input.get("limit"), 10), bool(tool_input.get("ascending")))
         return _result(out, measure, scope, notes, sorted_by=M.MEASURES[used]["metric"])
 
-    def _drivers(self, a: dict) -> dict:
-        period = self._period(a.get("period"), "period")
-        prior = self._prior(a.get("prior"), period)
-        dimension = self._dimension(a.get("dimension"), "dimension")
-        measure, scope = self._measure(a.get("measure")), self._scope(a.get("scope"))
-        filters = self._filters(a.get("filters"))
+    def _drivers(self, tool_input: dict) -> dict:
+        period = self._period(tool_input.get("period"), "period")
+        prior = self._prior(tool_input.get("prior"), period)
+        dimension = self._dimension(tool_input.get("dimension"), "dimension")
+        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
+        filters = self._filters(tool_input.get("filters"))
         notes = [f"{period} versus {prior}."]
         used = self._sorted_measure(measure, "Decomposed", notes)
 
@@ -383,7 +383,7 @@ class Tools:
             )
 
         out = Q.drivers(self.sem, period, prior, dimension, used,
-                        scope or M.DEFAULT_SCOPE, filters, _int(a.get("limit"), 5))
+                        scope or M.DEFAULT_SCOPE, filters, _int(tool_input.get("limit"), 5))
         return _result(out, measure, scope, notes, causes=out["causes"])
 
 
