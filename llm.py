@@ -17,6 +17,10 @@ in one place per backend instead of leaking into the agent.
              {"kind": "tool_use",    "id", "name", "input"}
              {"kind": "tool_result", "id", "text", "is_error"}
     Reply    {"text", "tool_uses": [{"id", "name", "input"}], "stop"}
+
+The two adapters are deliberately not factored into a shared translator. Their
+wire formats differ in every key name, so a common one would be a lookup table
+pretending to be an abstraction -- harder to read than the two plain versions.
 """
 
 from __future__ import annotations
@@ -34,10 +38,22 @@ ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 MAX_TOKENS = 4096
 
+DEFAULT_AWS_REGION = "us-west-2"
+SUPPORTED_BACKENDS = ("bedrock", "local", "none")
+
 
 class LLM(Protocol):
     def converse(self, system: str, messages: list[dict], tools: list[dict]) -> dict:
         ...
+
+
+def _build_reply(text_parts: list[str], tool_uses: list[dict], stop_reason: str) -> dict:
+    """The neutral Reply shape. Written once so both adapters agree on it."""
+    return {
+        "text": "\n".join(text_parts).strip(),
+        "tool_uses": tool_uses,
+        "stop": stop_reason or "",
+    }
 
 
 # --- Bedrock ---------------------------------------------------------------
@@ -60,73 +76,77 @@ class BedrockLLM:
         self.model_id = model_id or os.environ.get(
             "BEDROCK_MODEL_ID", BEDROCK_DEFAULT_MODEL
         )
-        self.region = region or os.environ.get("AWS_REGION") or "us-west-2"
+        self.region = region or os.environ.get("AWS_REGION") or DEFAULT_AWS_REGION
         self.client = boto3.client("bedrock-runtime", region_name=self.region)
 
     def converse(self, system: str, messages: list[dict], tools: list[dict]) -> dict:
-        resp = self.client.converse(
+        response = self.client.converse(
             modelId=self.model_id,
             system=[{"text": system}],
-            messages=[self._encode(m) for m in messages],
-            toolConfig={
-                "tools": [
-                    {
-                        "toolSpec": {
-                            "name": t["name"],
-                            "description": t["description"],
-                            "inputSchema": {"json": t["schema"]},
-                        }
-                    }
-                    for t in tools
-                ]
-            },
+            messages=[self._encode_message(message) for message in messages],
+            toolConfig={"tools": [self._encode_tool(tool) for tool in tools]},
             inferenceConfig={"maxTokens": MAX_TOKENS},
         )
-        return self._decode(resp)
+        return self._decode_response(response)
 
     @staticmethod
-    def _encode(msg: dict) -> dict:
+    def _encode_tool(tool: dict) -> dict:
+        return {
+            "toolSpec": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "inputSchema": {"json": tool["schema"]},
+            }
+        }
+
+    @staticmethod
+    def _encode_message(message: dict) -> dict:
         content = []
-        for b in msg["content"]:
-            if b["kind"] == "text":
+        for block in message["content"]:
+            kind = block["kind"]
+
+            if kind == "text":
                 # Converse rejects empty text blocks, and a tool-only assistant
                 # turn legitimately has one.
-                if b["text"].strip():
-                    content.append({"text": b["text"]})
-            elif b["kind"] == "tool_use":
+                if block["text"].strip():
+                    content.append({"text": block["text"]})
+
+            elif kind == "tool_use":
                 content.append({
                     "toolUse": {
-                        "toolUseId": b["id"],
-                        "name": b["name"],
-                        "input": b["input"],
+                        "toolUseId": block["id"],
+                        "name": block["name"],
+                        "input": block["input"],
                     }
                 })
-            elif b["kind"] == "tool_result":
+
+            elif kind == "tool_result":
                 content.append({
                     "toolResult": {
-                        "toolUseId": b["id"],
-                        "content": [{"text": b["text"]}],
-                        "status": "error" if b.get("is_error") else "success",
+                        "toolUseId": block["id"],
+                        "content": [{"text": block["text"]}],
+                        "status": "error" if block.get("is_error") else "success",
                     }
                 })
-        return {"role": msg["role"], "content": content}
+
+        return {"role": message["role"], "content": content}
 
     @staticmethod
-    def _decode(resp: dict) -> dict:
-        text, tool_uses = [], []
-        for b in resp["output"]["message"]["content"]:
-            if "text" in b:
-                text.append(b["text"])
-            elif "toolUse" in b:
-                u = b["toolUse"]
+    def _decode_response(response: dict) -> dict:
+        text_parts, tool_uses = [], []
+
+        for block in response["output"]["message"]["content"]:
+            if "text" in block:
+                text_parts.append(block["text"])
+            elif "toolUse" in block:
+                requested = block["toolUse"]
                 tool_uses.append({
-                    "id": u["toolUseId"], "name": u["name"], "input": u["input"],
+                    "id": requested["toolUseId"],
+                    "name": requested["name"],
+                    "input": requested["input"],
                 })
-        return {
-            "text": "\n".join(text).strip(),
-            "tool_uses": tool_uses,
-            "stop": resp.get("stopReason", ""),
-        }
+
+        return _build_reply(text_parts, tool_uses, response.get("stopReason", ""))
 
 
 # --- Anthropic API ---------------------------------------------------------
@@ -140,64 +160,74 @@ class LocalLLM:
     def __init__(self, model: str | None = None, api_key: str | None = None):
         import anthropic
 
-        self.model = model or os.environ.get("ANTHROPIC_MODEL", ANTHROPIC_DEFAULT_MODEL)
+        self.model = model or os.environ.get(
+            "ANTHROPIC_MODEL", ANTHROPIC_DEFAULT_MODEL
+        )
         self.client = anthropic.Anthropic(
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
         )
 
     def converse(self, system: str, messages: list[dict], tools: list[dict]) -> dict:
-        resp = self.client.messages.create(
+        response = self.client.messages.create(
             model=self.model,
             max_tokens=MAX_TOKENS,
             system=system,
-            messages=[self._encode(m) for m in messages],
-            tools=[
-                {
-                    "name": t["name"],
-                    "description": t["description"],
-                    "input_schema": t["schema"],
-                }
-                for t in tools
-            ],
+            messages=[self._encode_message(message) for message in messages],
+            tools=[self._encode_tool(tool) for tool in tools],
         )
-        return self._decode(resp)
+        return self._decode_response(response)
 
     @staticmethod
-    def _encode(msg: dict) -> dict:
+    def _encode_tool(tool: dict) -> dict:
+        return {
+            "name": tool["name"],
+            "description": tool["description"],
+            "input_schema": tool["schema"],
+        }
+
+    @staticmethod
+    def _encode_message(message: dict) -> dict:
         content = []
-        for b in msg["content"]:
-            if b["kind"] == "text":
-                if b["text"].strip():
-                    content.append({"type": "text", "text": b["text"]})
-            elif b["kind"] == "tool_use":
+        for block in message["content"]:
+            kind = block["kind"]
+
+            if kind == "text":
+                if block["text"].strip():
+                    content.append({"type": "text", "text": block["text"]})
+
+            elif kind == "tool_use":
                 content.append({
                     "type": "tool_use",
-                    "id": b["id"],
-                    "name": b["name"],
-                    "input": b["input"],
+                    "id": block["id"],
+                    "name": block["name"],
+                    "input": block["input"],
                 })
-            elif b["kind"] == "tool_result":
+
+            elif kind == "tool_result":
                 content.append({
                     "type": "tool_result",
-                    "tool_use_id": b["id"],
-                    "content": b["text"],
-                    "is_error": bool(b.get("is_error")),
+                    "tool_use_id": block["id"],
+                    "content": block["text"],
+                    "is_error": bool(block.get("is_error")),
                 })
-        return {"role": msg["role"], "content": content}
+
+        return {"role": message["role"], "content": content}
 
     @staticmethod
-    def _decode(resp) -> dict:
-        text, tool_uses = [], []
-        for b in resp.content:
-            if b.type == "text":
-                text.append(b.text)
-            elif b.type == "tool_use":
-                tool_uses.append({"id": b.id, "name": b.name, "input": dict(b.input)})
-        return {
-            "text": "\n".join(text).strip(),
-            "tool_uses": tool_uses,
-            "stop": resp.stop_reason or "",
-        }
+    def _decode_response(response) -> dict:
+        text_parts, tool_uses = [], []
+
+        for block in response.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "tool_use":
+                tool_uses.append({
+                    "id": block.id,
+                    "name": block.name,
+                    "input": dict(block.input),
+                })
+
+        return _build_reply(text_parts, tool_uses, response.stop_reason)
 
 
 # --- Selection -------------------------------------------------------------
@@ -208,16 +238,17 @@ def get_backend() -> str:
     Which backend this process will use: bedrock, local, or none.
 
     Defaults to `none` so a clone with no credentials still starts, but `none`
-    cannot answer: something has to map a question onto a tool. The metric layer
-    in metrics.py is callable without a model, and verify.py exercises it that
+    cannot answer: something has to map a question onto a tool. The query layer
+    in queries.py is callable without a model, and verify.py exercises it that
     way, so a deterministic path is possible -- it just does not exist yet.
     """
-    want = (os.environ.get("FRESHFLOW_BACKEND") or "none").strip().lower()
-    if want not in ("bedrock", "local", "none"):
+    requested = (os.environ.get("FRESHFLOW_BACKEND") or "none").strip().lower()
+
+    if requested not in SUPPORTED_BACKENDS:
         return "none"
-    if want == "local" and not os.environ.get("ANTHROPIC_API_KEY"):
+    if requested == "local" and not os.environ.get("ANTHROPIC_API_KEY"):
         return "none"
-    return want
+    return requested
 
 
 def get_llm() -> LLM | None:
