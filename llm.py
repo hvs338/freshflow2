@@ -77,7 +77,9 @@ class BedrockLLM:
             "BEDROCK_MODEL_ID", BEDROCK_DEFAULT_MODEL
         )
         self.region = region or os.environ.get("AWS_REGION") or DEFAULT_AWS_REGION
-        self.client = boto3.client("bedrock-runtime", region_name=self.region)
+        profile = os.environ.get("AWS_PROFILE", "personal-aws")
+        session = boto3.Session(profile_name=profile, region_name=self.region)
+        self.client = session.client("bedrock-runtime")
 
     def converse(self, system: str, messages: list[dict], tools: list[dict]) -> dict:
         response = self.client.converse(

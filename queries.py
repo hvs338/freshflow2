@@ -37,6 +37,7 @@ COMPARED_MEASURES = (
     "sold_units",
     "shrink_units",
     "shrink_cost",
+    "revenue",
 )
 
 # Carried through a comparison for context but not differenced: the change in an
