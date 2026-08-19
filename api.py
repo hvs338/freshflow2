@@ -21,13 +21,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import metrics as M
+import metrics
 from agent import MAX_STEPS, Agent
 
 PORT = int(os.environ.get("PORT", "8501"))
-DIST = Path(__file__).parent / "web" / "dist"
+BUILT_UI_DIR = Path(__file__).parent / "web" / "dist"
 
-EXAMPLES = [
+EXAMPLE_QUESTIONS = [
     "What were our top 10 items by shrink last month?",
     "Is shrink up or down versus the prior month?",
     "Which stores have the worst shrink?",
@@ -60,18 +60,18 @@ class Question(BaseModel):
 
 @app.get("/api/meta")
 def meta() -> dict:
-    start, end = agent.sem.date_range()
+    """
+    What the sidebar needs: the extract's shape and the named metrics.
+
+    The dataset facts come from the agent rather than from its semantic view,
+    so this file talks to one object and knows nothing about what is behind it.
+    """
     return {
         "backend": agent.backend,
-        "coverage": {"start": start, "end": end},
-        "columns": agent.sem.columns(),
-        "metrics": M.METRICS,
-        "stores": len(agent.sem.values_of("store_id")),
-        "departments": agent.sem.values_of("dept"),
-        "regions": agent.sem.values_of("region"),
-        "banners": agent.sem.values_of("banner"),
+        "metrics": metrics.METRICS,
         "max_steps": MAX_STEPS,
-        "examples": EXAMPLES,
+        "examples": EXAMPLE_QUESTIONS,
+        **agent.describe_dataset(),
     }
 
 
@@ -89,21 +89,21 @@ def ask(body: Question) -> dict:
     return asdict(agent.ask(question))
 
 
-if DIST.is_dir():
-    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
+if BUILT_UI_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=BUILT_UI_DIR / "assets"), name="assets")
 
     @app.get("/{path:path}")
-    def spa(path: str):
-        candidate = DIST / path
-        if path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(DIST / "index.html")
+    def serve_single_page_app(path: str):
+        requested_file = BUILT_UI_DIR / path
+        if path and requested_file.is_file():
+            return FileResponse(requested_file)
+        return FileResponse(BUILT_UI_DIR / "index.html")
 
 
 if __name__ == "__main__":
     import uvicorn
 
     print(f"backend: {agent.backend}")
-    if not DIST.is_dir():
+    if not BUILT_UI_DIR.is_dir():
         print("web/dist not built. Run `npm run build` in web/, or `npm run dev`.")
     uvicorn.run(app, host="0.0.0.0", port=PORT)

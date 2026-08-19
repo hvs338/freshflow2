@@ -3,6 +3,10 @@ Run questions end to end from the terminal.
 
     FRESHFLOW_BACKEND=bedrock python demo.py
     python demo.py "your own question"
+
+Prints the same three things the web UI shows -- the answer, every tool call
+behind it, and which contested definitions were used -- so a question can be
+checked without starting a server.
 """
 
 import sys
@@ -10,7 +14,7 @@ import sys
 from agent import Agent
 
 # The questions Meridian's team actually asks, from the data dictionary.
-QUESTIONS = [
+DEFAULT_QUESTIONS = [
     "What were our top 10 items by shrink last month?",
     "Is shrink up or down versus the prior month?",
     "Which stores have the worst shrink?",
@@ -23,35 +27,63 @@ QUESTIONS = [
     "Which items have high unit shrink but little cost impact?",
 ]
 
-# The Windows console is cp1252; a model that writes an em dash would otherwise
-# kill the demo mid-answer.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+RULE_WIDTH = 78
+INDENT = "      "
 
-agent = Agent()
-print(f"backend: {agent.backend}")
 
-for question in sys.argv[1:] or QUESTIONS:
-    answer = agent.ask(question)
-    print("\n" + "=" * 78)
-    print("Q:", question)
-    print("-" * 78)
+def print_answer(answer) -> None:
+    """The prose, with a rule above it so questions are easy to scroll between."""
+    print("\n" + "=" * RULE_WIDTH)
+    print("Q:", answer.question)
+    print("-" * RULE_WIDTH)
     print(answer.text)
 
-    for step in answer.steps:
-        flag = "ok" if step.ok else "REJECTED"
-        print(f"\n  [{flag}] {step.tool}: {step.purpose}")
-        for line in step.sql.strip().splitlines():
-            print("      " + line.strip())
-        if step.ok:
-            print(f"      -> {len(step.rows)} row(s): {', '.join(step.columns)}")
-        else:
-            print(f"      -> {step.error}")
-        for note in step.notes:
-            print(f"      note: {note}")
 
-    for choice in answer.choices:
-        mark = " (default)" if choice["defaulted"] else ""
-        print(f"  DEF  {choice['question']} -> {choice['chosen']}{mark}")
+def print_step(step) -> None:
+    """One tool call: what ran, the SQL, and what came back."""
+    outcome = "ok" if step.ok else "REJECTED"
+    print(f"\n  [{outcome}] {step.tool}: {step.purpose}")
 
-    for warning in answer.warnings:
-        print("  !   ", warning)
+    for line in step.sql.strip().splitlines():
+        print(INDENT + line.strip())
+
+    if step.ok:
+        print(f"{INDENT}-> {len(step.rows)} row(s): {', '.join(step.columns)}")
+    else:
+        print(f"{INDENT}-> {step.error}")
+
+    for note in step.notes:
+        print(f"{INDENT}note: {note}")
+
+
+def print_definitions(choices) -> None:
+    """Which contested definition each answer used, and whether it was chosen."""
+    for choice in choices:
+        marker = " (default)" if choice["defaulted"] else ""
+        print(f"  DEF  {choice['question']} -> {choice['chosen']}{marker}")
+
+
+def main() -> None:
+    # The Windows console is cp1252; a model that writes an em dash would
+    # otherwise kill the demo mid-answer.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    agent = Agent()
+    print(f"backend: {agent.backend}")
+
+    questions = sys.argv[1:] or DEFAULT_QUESTIONS
+    for question in questions:
+        answer = agent.ask(question)
+        print_answer(answer)
+
+        for step in answer.steps:
+            print_step(step)
+
+        print_definitions(answer.choices)
+
+        for warning in answer.warnings:
+            print("  !   ", warning)
+
+
+if __name__ == "__main__":
+    main()

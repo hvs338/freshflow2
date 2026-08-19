@@ -1,169 +1,61 @@
 """
-What the model is allowed to ask for.
+Validating what the model asked for, then calling the query layer.
 
-Five tools. Four of them are the named questions from queries.py -- how much,
-up or down, top N, and why -- and the fifth is `query`, the SQL escape hatch for
-everything they do not express. The typed four carry the reviewed shrink logic;
-`query` does not, which is why the prompt tells the model to prefer them.
+The schemas live in tool_schemas.py; this file enforces them. Every argument is
+checked against the actual data before any SQL is built, which is the property
+the whole design rests on:
 
-Two properties are load-bearing:
+  * An unresolvable region or a month outside the extract comes back as an error
+    the model reads and corrects, never as a silent guess.
 
-  * `measure` and `scope` are nullable on every tool, and the descriptions say
-    null means the user did not specify. A model that cannot decline to resolve
-    Meridian's two contested definitions will always guess at them.
+  * A filter is never quietly dropped. A dropped filter means a number computed
+    over the wrong rows while still looking right, which is the worst available
+    failure for this product.
 
-  * Every argument is checked against the actual data before any SQL is built.
-    An unresolvable region or a month outside the extract comes back as an error
-    the model reads and corrects, never as a silent guess -- and never as a
-    filter quietly dropped, which would mean a number computed over the wrong
-    rows while still looking right.
-
-That second property is also what makes the string interpolation in queries.py
+That second point is also what makes the string interpolation in queries.py
 safe: nothing reaches a SQL builder that did not first match a real value.
+
+The file reads in three parts: the validators, the four handlers that use them,
+and the result shape they all return.
 """
 
 from __future__ import annotations
 
-import metrics as M
-import queries as Q
+from calendar import monthrange
+from dataclasses import dataclass
 
-# Hoisted here rather than written twice: `query` in router.py takes the same
-# two arguments, and the wording of "null is a valid answer" is the grounding
-# mechanism for the whole assignment. It should exist once.
-NULLABLE_MEASURE = {
-    "type": ["string", "null"],
-    "enum": ["units", "cost", None],
-    "description": (
-        "Count shrink in physical units or in dollars of cost. At Meridian "
-        "these do not move together and can point in opposite directions in "
-        "the same month. Set this ONLY if the user clearly indicated one. Null "
-        "means the user did not specify, which is a valid and expected answer."
-    ),
-}
+import metrics
+import queries
+import router
+from tool_schemas import DEFAULT_DRIVER_ROWS, DEFAULT_RANK_ROWS, TOOL_DEFINITIONS
 
-NULLABLE_SCOPE = {
-    "type": ["string", "null"],
-    "enum": ["fresh", "all", None],
-    "description": (
-        "'fresh' is the five fresh departments, excluding Grocery, which is "
-        "what ops usually means. 'all' includes Grocery. Set this ONLY if the "
-        "user said so. Null means the user did not specify, which is a valid "
-        "and expected answer."
-    ),
-}
-
-_FILTERS = {
-    "type": "object",
-    "description": (
-        "Row filters. Omit any key that does not apply. Values are matched "
-        "against the data; anything that does not resolve comes back as an "
-        "error rather than being ignored."
-    ),
-    "properties": {
-        d: {"type": "array", "items": {"type": "integer" if d == "store_id" else "string"}}
-        for d in M.DIMENSIONS
-    },
-}
-
-_DIMENSION = {
-    "type": "string",
-    "enum": list(M.DIMENSIONS),
-    "description": "A dimension to split by. 'description' means item level.",
-}
-
-
-def _month(what: str) -> dict:
-    return {"type": "string", "description": what + " Format YYYY-MM."}
-
-
-TOOL_DEFINITIONS = {
-    "shrink": {
-        "description": (
-            "Total shrink for one month, optionally split by one dimension. "
-            "Returns both units and cost every time. Use this for 'how much "
-            "shrink', not for comparisons."
-        ),
-        "schema": {
-            "type": "object",
-            "properties": {
-                "period": _month("The month to measure."),
-                "measure": NULLABLE_MEASURE,
-                "scope": NULLABLE_SCOPE,
-                "filters": _FILTERS,
-                "group_by": {**_DIMENSION, "description": _DIMENSION["description"] + " Optional."},
-            },
-            "required": ["period"],
-        },
-    },
-    "compare": {
-        "description": (
-            "Two months side by side with deltas and percentages on both "
-            "measures. Use this for 'up or down versus last month'. When the "
-            "two measures disagree it says so."
-        ),
-        "schema": {
-            "type": "object",
-            "properties": {
-                "period": _month("The month of interest."),
-                "prior": _month("The month to compare against. Defaults to the month before."),
-                "measure": NULLABLE_MEASURE,
-                "scope": NULLABLE_SCOPE,
-                "filters": _FILTERS,
-                "group_by": {**_DIMENSION, "description": _DIMENSION["description"] + " Optional."},
-            },
-            "required": ["period"],
-        },
-    },
-    "rank": {
-        "description": (
-            "Top or bottom N of some dimension by shrink, for one month. Needs "
-            "one column to sort by, so a null measure is defaulted to units and "
-            "the result says so. Every row carries BOTH units and cost "
-            "regardless of which it sorted by -- one call is enough to compare "
-            "the two, so do not call this twice."
-        ),
-        "schema": {
-            "type": "object",
-            "properties": {
-                "period": _month("The month to rank within."),
-                "by": _DIMENSION,
-                "measure": NULLABLE_MEASURE,
-                "scope": NULLABLE_SCOPE,
-                "filters": _FILTERS,
-                "limit": {"type": "integer", "description": "How many rows. Default 10."},
-                "ascending": {
-                    "type": "boolean",
-                    "description": "True only if the user asked for the lowest or best.",
-                },
-            },
-            "required": ["period", "by"],
-        },
-    },
-    "drivers": {
-        "description": (
-            "Decompose a month-over-month move: which slices account for the "
-            "change, and for each one whether shipments rose or sales fell. "
-            "Those imply opposite corrective actions. Use this for 'why'."
-        ),
-        "schema": {
-            "type": "object",
-            "properties": {
-                "period": _month("The month of interest."),
-                "prior": _month("The month to compare against. Defaults to the month before."),
-                "dimension": {**_DIMENSION, "description": "Dimension to decompose the change by."},
-                "measure": NULLABLE_MEASURE,
-                "scope": NULLABLE_SCOPE,
-                "filters": _FILTERS,
-                "limit": {"type": "integer", "description": "How many contributors. Default 5."},
-            },
-            "required": ["period", "dimension"],
-        },
-    },
-}
+# How many valid values an error message lists before it summarises.
+VALUES_SHOWN_IN_ERRORS = 8
 
 
 class ToolError(Exception):
     """A bad argument. Shown to the model as a result, never raised at the user."""
+
+
+@dataclass(frozen=True)
+class CommonArguments:
+    """
+    The four arguments every typed tool accepts, already validated.
+
+    Parsed once and passed around rather than re-read from the raw input in
+    each handler, so there is exactly one place that decides what "no scope
+    given" means.
+    """
+
+    period: str
+    measure: str | None
+    scope: str | None
+    filters: dict
+
+    @property
+    def scope_to_query(self) -> str:
+        """The scope a query actually runs under. Null becomes the ops default."""
+        return self.scope or metrics.DEFAULT_SCOPE
 
 
 class Tools:
@@ -176,40 +68,67 @@ class Tools:
     it and getting a second chance to disagree.
     """
 
-    def __init__(self, sem):
-        self.sem = sem
-        self.vocab = {d: sem.values_of(d) for d in M.DIMENSIONS}
-        self.months = _complete_months(sem)
+    def __init__(self, semantic_view):
+        self.view = semantic_view
+        self.known_values = {
+            dimension: semantic_view.values_of(dimension)
+            for dimension in metrics.DIMENSIONS
+        }
+        self.months = find_complete_months(semantic_view)
 
     def specs(self) -> list[dict]:
-        import router  # imported here: router imports this module for its schemas
+        """Every tool the model is offered, typed four first then the escape hatch."""
+        typed_specs = [
+            {
+                "name": name,
+                "description": definition["description"],
+                "schema": definition["schema"],
+            }
+            for name, definition in TOOL_DEFINITIONS.items()
+        ]
+        return typed_specs + [router.query_tool()]
 
-        return [
-            {"name": n, "description": s["description"], "schema": s["schema"]}
-            for n, s in TOOL_DEFINITIONS.items()
-        ] + [router.query_tool()]
-
-    def call(self, name: str, args: dict) -> dict:
+    def call(self, name: str, tool_input: dict) -> dict:
         """
         Run one typed tool. Returns {sql, columns, rows, notes, ...}.
 
         Raises ToolError for anything the model got wrong, which agent.py hands
         straight back so it can read the reason and try again.
         """
-        handler = {"shrink": self._shrink, "compare": self._compare,
-                   "rank": self._rank, "drivers": self._drivers}.get(name)
+        handlers = {
+            "shrink": self._handle_shrink,
+            "compare": self._handle_compare,
+            "rank": self._handle_rank,
+            "drivers": self._handle_drivers,
+        }
+        handler = handlers.get(name)
         if handler is None:
-            raise ToolError(f"No such tool {name!r}.")
-        return handler(args or {})
+            raise ToolError(
+                f"No such tool {name!r}. Available: {', '.join(handlers)}."
+            )
+        return handler(tool_input or {})
 
     # -- argument validation ------------------------------------------------
 
-    def _period(self, raw, field: str, required: bool = True) -> str | None:
-        if raw in (None, ""):
+    def _parse_common_arguments(self, tool_input: dict) -> CommonArguments:
+        """The four arguments every typed tool shares, validated together."""
+        return CommonArguments(
+            period=self.validate_period(tool_input.get("period"), "period"),
+            measure=self.validate_measure(tool_input.get("measure")),
+            scope=self.validate_scope(tool_input.get("scope")),
+            filters=self.validate_filters(tool_input.get("filters")),
+        )
+
+    def validate_period(
+        self, raw_value, field_name: str, required: bool = True
+    ) -> str | None:
+        """A month the extract covers end to end, or an error naming the ones it does."""
+        if raw_value in (None, ""):
             if required:
-                raise ToolError(f"{field} is required, as YYYY-MM.")
+                raise ToolError(f"{field_name} is required, as YYYY-MM.")
             return None
-        month = str(raw).strip()
+
+        month = str(raw_value).strip()
         if month not in self.months:
             raise ToolError(
                 f"{month} is not a complete month in this extract. Available: "
@@ -217,44 +136,60 @@ class Tools:
             )
         return month
 
-    def _prior(self, raw, period: str) -> str:
+    def validate_prior_period(self, raw_value, period: str) -> str:
         """The month before `period`, unless the model named one."""
-        named = self._period(raw, "prior", required=False)
-        if named:
-            return named
-        i = self.months.index(period)
-        if i == 0:
+        named_month = self.validate_period(raw_value, "prior", required=False)
+        if named_month:
+            return named_month
+
+        position = self.months.index(period)
+        if position == 0:
             raise ToolError(
                 f"{period} is the first month in the extract, so there is "
                 "nothing before it to compare against."
             )
-        return self.months[i - 1]
+        return self.months[position - 1]
 
     @staticmethod
-    def _measure(raw) -> str | None:
-        if raw in (None, "", "null"):
+    def validate_measure(raw_value) -> str | None:
+        """Units, cost, or null. Null is a valid answer, not a missing one."""
+        if raw_value in (None, "", "null"):
             return None
-        if raw not in M.MEASURES:
-            raise ToolError(f"measure must be 'units', 'cost', or null; got {raw!r}.")
-        return raw
-
-    @staticmethod
-    def _scope(raw) -> str | None:
-        if raw in (None, "", "null"):
-            return None
-        if raw not in M.SCOPES:
-            raise ToolError(f"scope must be 'fresh', 'all', or null; got {raw!r}.")
-        return raw
-
-    @staticmethod
-    def _dimension(raw, field: str) -> str:
-        if raw not in M.DIMENSIONS:
+        if raw_value not in metrics.MEASURES:
             raise ToolError(
-                f"{field} must be one of {', '.join(M.DIMENSIONS)}; got {raw!r}."
+                f"measure must be 'units', 'cost', or null; got {raw_value!r}."
             )
-        return raw
+        return raw_value
 
-    def _filters(self, raw) -> dict:
+    @staticmethod
+    def validate_scope(raw_value) -> str | None:
+        """Fresh, all, or null. Null is a valid answer, not a missing one."""
+        if raw_value in (None, "", "null"):
+            return None
+        if raw_value not in metrics.SCOPES:
+            raise ToolError(
+                f"scope must be 'fresh', 'all', or null; got {raw_value!r}."
+            )
+        return raw_value
+
+    @staticmethod
+    def validate_dimension(raw_value, field_name: str) -> str:
+        """A column the data can actually be split by."""
+        if raw_value not in metrics.DIMENSIONS:
+            raise ToolError(
+                f"{field_name} must be one of {', '.join(metrics.DIMENSIONS)}; "
+                f"got {raw_value!r}."
+            )
+        return raw_value
+
+    def parse_optional_group_by(self, tool_input: dict) -> tuple:
+        """`group_by` as the tuple the query layer wants, or empty if absent."""
+        requested = tool_input.get("group_by")
+        if not requested:
+            return ()
+        return (self.validate_dimension(requested, "group_by"),)
+
+    def validate_filters(self, raw_filters) -> dict:
         """
         Resolve every filter value against the real column values.
 
@@ -262,147 +197,226 @@ class Tools:
         is a number computed over the wrong rows, which is worse than no answer
         because it still looks like one.
         """
-        raw = raw or {}
-        if not isinstance(raw, dict):
+        raw_filters = raw_filters or {}
+        if not isinstance(raw_filters, dict):
             raise ToolError("filters must be an object.")
 
-        out: dict[str, list] = {}
-        for key, vals in raw.items():
-            if key not in self.vocab:
+        resolved_filters: dict[str, list] = {}
+        for column, requested_values in raw_filters.items():
+            if column not in self.known_values:
                 raise ToolError(
-                    f"Cannot filter on {key!r}. Filterable: {', '.join(M.DIMENSIONS)}."
+                    f"Cannot filter on {column!r}. Filterable: "
+                    f"{', '.join(metrics.DIMENSIONS)}."
                 )
-            if not isinstance(vals, list):
-                vals = [vals]
-            kept, missed = [], []
-            for v in vals:
-                match = self._resolve(key, v)
-                (kept if match is not None else missed).append(
-                    match if match is not None else v
-                )
-            if missed:
-                raise ToolError(
-                    f"No {key} matching: {', '.join(str(m) for m in missed)}. "
-                    f"Valid values: {_sample(self.vocab[key])}."
-                )
-            if kept:
-                out[key] = kept
-        return out
+            matches = self._resolve_filter_values(column, requested_values)
+            if matches:
+                resolved_filters[column] = matches
+        return resolved_filters
 
-    def _resolve(self, key: str, value):
+    def _resolve_filter_values(self, column: str, requested_values) -> list:
+        """Every requested value for one column, or an error naming the failures."""
+        if not isinstance(requested_values, list):
+            requested_values = [requested_values]
+
+        matched, unmatched = [], []
+        for requested in requested_values:
+            match = self._match_one_value(column, requested)
+            if match is None:
+                unmatched.append(requested)
+            else:
+                matched.append(match)
+
+        if unmatched:
+            raise ToolError(
+                f"No {column} matching: "
+                f"{', '.join(str(value) for value in unmatched)}. "
+                f"Valid values: {_summarize_options(self.known_values[column])}."
+            )
+        return matched
+
+    def _match_one_value(self, column: str, value):
         """Exact, then case-insensitive, then a substring that matches one thing."""
-        options = self.vocab[key]
-        if key == "store_id":
+        options = self.known_values[column]
+
+        if column == "store_id":
             try:
-                value = int(value)
+                store_id = int(value)
             except (TypeError, ValueError):
                 return None
-            return value if value in options else None
+            return store_id if store_id in options else None
 
-        value = str(value).strip()
-        if value in options:
-            return value
-        lower = {str(o).lower(): o for o in options}
-        if value.lower() in lower:
-            return lower[value.lower()]
-        hits = [o for o in options if value.lower() in str(o).lower()]
-        return hits[0] if len(hits) == 1 else None
+        text = str(value).strip()
+        if text in options:
+            return text
 
-    def _sorted_measure(self, measure, what: str, notes: list[str]) -> str:
+        by_lowercase = {str(option).lower(): option for option in options}
+        if text.lower() in by_lowercase:
+            return by_lowercase[text.lower()]
+
+        substring_matches = [
+            option for option in options if text.lower() in str(option).lower()
+        ]
+        return substring_matches[0] if len(substring_matches) == 1 else None
+
+    @staticmethod
+    def resolve_sort_measure(measure: str | None, action: str) -> tuple[str, list[str]]:
         """
-        A ranking or a decomposition needs one column. Null cannot survive here,
-        so it becomes a disclosed default rather than a silent one.
+        A ranking or a decomposition needs one column to sort on.
+
+        Null cannot survive here, so it becomes a disclosed default: the measure
+        to use, plus the note telling the model to say it was not the user's
+        choice. Returned rather than appended to a caller's list, so nothing is
+        mutated behind the caller's back.
         """
         if measure is not None:
-            return measure
-        used = M.DEFAULT_MEASURE
-        notes.append(
-            f"No measure was specified. {what} by {M.MEASURES[used]['label']} "
-            f"because this needs a single column. Tell the user that was a "
-            f"default, not their choice, and name the alternative."
+            return measure, []
+
+        defaulted = metrics.DEFAULT_MEASURE
+        note = (
+            f"No measure was specified. {action} by "
+            f"{metrics.MEASURES[defaulted]['label']} because this needs a single "
+            "column. Tell the user that was a default, not their choice, and "
+            "name the alternative."
         )
-        return used
+        return defaulted, [note]
 
     # -- the four tools -----------------------------------------------------
 
-    def _shrink(self, tool_input: dict) -> dict:
-        period = self._period(tool_input.get("period"), "period")
-        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
-        filters = self._filters(tool_input.get("filters"))
-        group_by = (self._dimension(tool_input["group_by"], "group_by"),) if tool_input.get("group_by") else ()
+    def _handle_shrink(self, tool_input: dict) -> dict:
+        arguments = self._parse_common_arguments(tool_input)
+        group_by = self.parse_optional_group_by(tool_input)
 
-        out = Q.shrink(self.sem, period, scope or M.DEFAULT_SCOPE, filters, group_by)
-        return _result(out, measure, scope, [])
+        result = queries.shrink(
+            self.view,
+            arguments.period,
+            arguments.scope_to_query,
+            arguments.filters,
+            group_by,
+        )
+        return _build_result(result, arguments, notes=[])
 
-    def _compare(self, tool_input: dict) -> dict:
-        period = self._period(tool_input.get("period"), "period")
-        prior = self._prior(tool_input.get("prior"), period)
-        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
-        filters = self._filters(tool_input.get("filters"))
-        group_by = (self._dimension(tool_input["group_by"], "group_by"),) if tool_input.get("group_by") else ()
+    def _handle_compare(self, tool_input: dict) -> dict:
+        arguments = self._parse_common_arguments(tool_input)
+        prior = self.validate_prior_period(tool_input.get("prior"), arguments.period)
+        group_by = self.parse_optional_group_by(tool_input)
 
-        out = Q.compare(self.sem, period, prior, scope or M.DEFAULT_SCOPE, filters, group_by)
-        notes = [f"{period} versus {prior}."]
-        # The planted story: units and cost disagree May to June. Surface it
-        # rather than hoping the model spots it in four decimal places.
-        if not group_by and out["rows"]:
-            mix = Q.mix_effect(out["rows"][0])
-            if mix:
-                notes.append(mix)
-        return _result(out, measure, scope, notes)
+        result = queries.compare(
+            self.view,
+            arguments.period,
+            prior,
+            arguments.scope_to_query,
+            arguments.filters,
+            group_by,
+        )
+        notes = [f"{arguments.period} versus {prior}."]
+        notes += _mix_effect_notes(result, is_grouped=bool(group_by))
+        return _build_result(result, arguments, notes)
 
-    def _rank(self, tool_input: dict) -> dict:
-        period = self._period(tool_input.get("period"), "period")
-        by = self._dimension(tool_input.get("by"), "by")
-        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
-        filters = self._filters(tool_input.get("filters"))
-        notes: list[str] = []
-        used = self._sorted_measure(measure, "Ranked", notes)
+    def _handle_rank(self, tool_input: dict) -> dict:
+        arguments = self._parse_common_arguments(tool_input)
+        rank_by = self.validate_dimension(tool_input.get("by"), "by")
+        sort_measure, notes = self.resolve_sort_measure(arguments.measure, "Ranked")
 
-        out = Q.rank(self.sem, period, by, used, scope or M.DEFAULT_SCOPE, filters,
-                     _int(tool_input.get("limit"), 10), bool(tool_input.get("ascending")))
-        return _result(out, measure, scope, notes, sorted_by=M.MEASURES[used]["metric"])
+        result = queries.rank(
+            self.view,
+            arguments.period,
+            rank_by,
+            sort_measure,
+            arguments.scope_to_query,
+            arguments.filters,
+            _as_int(tool_input.get("limit"), DEFAULT_RANK_ROWS),
+            bool(tool_input.get("ascending")),
+        )
+        return _build_result(
+            result,
+            arguments,
+            notes,
+            sorted_by=metrics.MEASURES[sort_measure]["metric"],
+        )
 
-    def _drivers(self, tool_input: dict) -> dict:
-        period = self._period(tool_input.get("period"), "period")
-        prior = self._prior(tool_input.get("prior"), period)
-        dimension = self._dimension(tool_input.get("dimension"), "dimension")
-        measure, scope = self._measure(tool_input.get("measure")), self._scope(tool_input.get("scope"))
-        filters = self._filters(tool_input.get("filters"))
-        notes = [f"{period} versus {prior}."]
-        used = self._sorted_measure(measure, "Decomposed", notes)
+    def _handle_drivers(self, tool_input: dict) -> dict:
+        arguments = self._parse_common_arguments(tool_input)
+        prior = self.validate_prior_period(tool_input.get("prior"), arguments.period)
+        dimension = self.validate_dimension(tool_input.get("dimension"), "dimension")
+        sort_measure, measure_notes = self.resolve_sort_measure(
+            arguments.measure, "Decomposed"
+        )
 
-        # Decomposing by a dimension the question already pinned to one value
-        # returns one row at 100% of the change, which tells the user nothing.
-        # Say so rather than switching dimensions behind the model's back.
-        if len(filters.get(dimension, ())) == 1:
-            notes.append(
-                f"The filters already pin {dimension} to a single value, so this "
-                f"returns one row at 100%. Call drivers again with a finer "
-                f"dimension to learn anything."
-            )
+        notes = [f"{arguments.period} versus {prior}."] + measure_notes
+        notes += _pinned_dimension_notes(dimension, arguments.filters)
 
-        out = Q.drivers(self.sem, period, prior, dimension, used,
-                        scope or M.DEFAULT_SCOPE, filters, _int(tool_input.get("limit"), 5))
-        return _result(out, measure, scope, notes, causes=out["causes"])
+        result = queries.drivers(
+            self.view,
+            arguments.period,
+            prior,
+            dimension,
+            sort_measure,
+            arguments.scope_to_query,
+            arguments.filters,
+            _as_int(tool_input.get("limit"), DEFAULT_DRIVER_ROWS),
+        )
+        return _build_result(result, arguments, notes, causes=result["causes"])
 
 
-def _result(out: dict, measure, scope, notes: list[str], **extra) -> dict:
+# --- Notes the harness adds without being asked ----------------------------
+
+
+def _mix_effect_notes(result: dict, is_grouped: bool) -> list[str]:
+    """
+    The planted story: units and cost disagree May to June.
+
+    Surfaced here rather than left for the model to spot in four decimal places.
+    Only meaningful on an ungrouped comparison, where there is one row to read.
+    """
+    if is_grouped or not result["rows"]:
+        return []
+    explanation = queries.mix_effect(result["rows"][0])
+    return [explanation] if explanation else []
+
+
+def _pinned_dimension_notes(dimension: str, filters: dict) -> list[str]:
+    """
+    Decomposing by a dimension the question already pinned to one value returns
+    one row at 100% of the change, which tells the user nothing. Say so rather
+    than switching dimensions behind the model's back.
+    """
+    if len(filters.get(dimension, ())) != 1:
+        return []
+    return [
+        f"The filters already pin {dimension} to a single value, so this "
+        "returns one row at 100%. Call drivers again with a finer dimension to "
+        "learn anything."
+    ]
+
+
+# --- The shape every tool returns ------------------------------------------
+
+
+def _build_result(
+    result: dict,
+    arguments: CommonArguments,
+    notes: list[str],
+    **extra_fields,
+) -> dict:
     """One shape for every typed tool, so agent.py has one thing to render."""
-    if not out["rows"]:
+    if not result["rows"]:
         notes = notes + ["No rows. Check the filters before reporting a zero."]
+
     return {
-        "sql": out["sql"],
-        "columns": out["columns"],
-        "rows": out["rows"],
+        "sql": result["sql"],
+        "columns": result["columns"],
+        "rows": result["rows"],
         "notes": notes,
-        "measure": measure,
-        "scope": scope,
-        **extra,
+        "measure": arguments.measure,
+        "scope": arguments.scope,
+        **extra_fields,
     }
 
 
-def _complete_months(sem) -> list[str]:
+# --- Reading the calendar --------------------------------------------------
+
+
+def find_complete_months(semantic_view) -> list[str]:
     """
     Months the extract covers end to end.
 
@@ -410,32 +424,63 @@ def _complete_months(sem) -> list[str]:
     full prior month looks like a collapse in shrink and is entirely an
     artefact. Better to refuse the month than to answer it.
     """
-    start, end = sem.date_range()
-    months = [r["month"] for r in sem.run(
-        "SELECT DISTINCT strftime(date, '%Y-%m') AS month FROM daily ORDER BY 1",
-        "all", 240,
-    )["rows"]]
-    first, last = start[:7], end[:7]
+    first_date, last_date = semantic_view.date_range()
+    months = _months_present(semantic_view)
+
     return [
-        m for m in months
-        if not (m == first and start[8:] != "01") and not (m == last and not _month_end(end))
+        month
+        for month in months
+        if _month_is_complete(month, first_date, last_date)
     ]
 
 
-def _month_end(day: str) -> bool:
-    from calendar import monthrange
+def _months_present(semantic_view) -> list[str]:
+    """Every month with at least one row, oldest first."""
+    result = semantic_view.run(
+        "SELECT DISTINCT strftime(date, '%Y-%m') AS month FROM daily ORDER BY 1",
+        "all",
+        row_limit=240,
+    )
+    return [row["month"] for row in result["rows"]]
 
-    y, m, d = (int(p) for p in day.split("-"))
-    return d == monthrange(y, m)[1]
+
+def _month_is_complete(month: str, first_date: str, last_date: str) -> bool:
+    """
+    True unless this is a partly covered month at either end of the extract.
+
+    Months in the middle are complete by construction: the extract is
+    contiguous, so only the first and last can be clipped.
+    """
+    starts_mid_month = month == first_date[:7] and not _is_first_of_month(first_date)
+    ends_mid_month = month == last_date[:7] and not _is_last_of_month(last_date)
+    return not starts_mid_month and not ends_mid_month
 
 
-def _int(v, default: int) -> int:
+def _is_first_of_month(date_text: str) -> bool:
+    return date_text[8:] == "01"
+
+
+def _is_last_of_month(date_text: str) -> bool:
+    year, month, day = (int(part) for part in date_text.split("-"))
+    days_in_month = monthrange(year, month)[1]
+    return day == days_in_month
+
+
+# --- Small shared helpers --------------------------------------------------
+
+
+def _as_int(value, default: int) -> int:
+    """A row limit the model sent, or the default when it sent nonsense."""
     try:
-        return int(v)
+        return int(value)
     except (TypeError, ValueError):
         return default
 
 
-def _sample(options, n: int = 8) -> str:
-    shown = ", ".join(str(o) for o in list(options)[:n])
-    return shown + (f", ... ({len(options)} in total)" if len(options) > n else "")
+def _summarize_options(options, shown: int = VALUES_SHOWN_IN_ERRORS) -> str:
+    """The first few valid values, and how many there are in total."""
+    options = list(options)
+    listed = ", ".join(str(option) for option in options[:shown])
+    if len(options) <= shown:
+        return listed
+    return f"{listed}, ... ({len(options)} in total)"
