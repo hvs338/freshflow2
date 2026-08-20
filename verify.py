@@ -144,6 +144,29 @@ def scalar_from_view(sql, scope="all"):
     return list(semantic_view.run(sql, scope)["rows"][0].values())[0]
 
 
+_ADDITIVE_COLUMNS = {"revenue": "net_sales", "sold": "units_sold"}
+
+
+def additive_from_raw(month, departments, measure):
+    """Revenue or units-sold computed from the raw CSV."""
+    sold = sales_facts[sales_facts.month == month]
+    sold = sold[sold.dept.isin(departments)]
+    return sold[_ADDITIVE_COLUMNS[measure]].sum()
+
+
+_ADDITIVE_METRICS_KEYS = {"revenue": "revenue", "sold": "units_sold"}
+
+
+def additive_from_view(month, scope, measure):
+    """Same metric through the semantic view."""
+    expression = metrics.METRICS[_ADDITIVE_METRICS_KEYS[measure]]
+    sql = (
+        f"SELECT {expression} AS value FROM daily "
+        f"WHERE strftime(date, '%Y-%m') = '{month}'"
+    )
+    return semantic_view.run(sql, scope)["rows"][0]["value"]
+
+
 # --- 1. The view agrees with the files -------------------------------------
 
 print("\n1. Monthly totals, both measures, both scopes")
@@ -368,5 +391,18 @@ log.record(
     else f"missing {actual_columns - described_columns}, "
     f"stale {described_columns - actual_columns}",
 )
+
+# --- 8. Revenue and units-sold, both scopes ----------------------------------
+
+print("\n8. Revenue and units-sold, both scopes")
+for month in MONTHS_IN_EXTRACT:
+    for scope in BOTH_SCOPES:
+        departments = metrics.SCOPES[scope]["departments"]
+        for measure in _ADDITIVE_COLUMNS:
+            log.close_enough(
+                f"{month} {scope} {measure}",
+                additive_from_view(month, scope, measure),
+                additive_from_raw(month, departments, measure),
+            )
 
 log.report()

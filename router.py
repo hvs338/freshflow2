@@ -237,11 +237,12 @@ def _describe_measure_choice(resolved_measure: str | None) -> dict:
             "alternative": None,
         }
 
-    alternative = "cost" if resolved_measure == "units" else "units"
+    _shrink_pairs = {"units": "cost", "cost": "units"}
+    alternative_key = _shrink_pairs.get(resolved_measure)
     return {
-        "question": "Units or cost?",
+        "question": "Which measure?",
         "chosen": metrics.MEASURES[resolved_measure]["label"],
         "why": "You specified this. " + metrics.MEASURES[resolved_measure]["why"],
         "defaulted": False,
-        "alternative": metrics.MEASURES[alternative]["label"],
+        "alternative": metrics.MEASURES[alternative_key]["label"] if alternative_key else None,
     }

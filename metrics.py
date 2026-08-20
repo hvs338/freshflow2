@@ -95,6 +95,16 @@ MEASURES = {
     },
 }
 
+# Which column to sort rank results by. Wider than MEASURES: revenue and sold
+# are not shrink definitions, so they do not belong there, but they are valid
+# sort keys. The `metric` value is the output column alias from SELECTED_METRICS.
+SORT_BY = {
+    "units": {"label": "shrink units", "metric": "shrink_units"},
+    "cost": {"label": "shrink cost", "metric": "shrink_cost"},
+    "revenue": {"label": "revenue", "metric": "revenue"},
+    "sold": {"label": "units sold", "metric": "sold_units"},
+}
+
 DEFAULT_SCOPE = "fresh"
 DEFAULT_MEASURE = "units"
 

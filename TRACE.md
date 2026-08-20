@@ -100,6 +100,90 @@ disagree about which departments count.
 
 ---
 
+## Two kinds of data in the loop
+
+Reading `agent.py` it is easy to conflate two things that look alike but are
+not: the **`Answer` the agent produces** and the **wire protocol it speaks to
+the model**. They never mix, and keeping them apart is what makes the loop
+short.
+
+**1. The final product — `Answer`.** This is the *only* thing `Agent.ask`
+returns to the outside world (to `api.py` → the UI). A dataclass at
+[agent.py:50](agent.py#L50):
+
+```
+Answer
+├─ question : str          the question asked
+├─ text     : str          the model's prose answer (what the user reads)
+├─ backend  : str          "bedrock" | "local" | "none"
+├─ steps    : list[Step]   every tool call it ran, for the evidence panel
+├─ choices  : list[dict]   the scope/measure disclosure (units vs cost, fresh vs all)
+└─ warnings : list[str]    e.g. "stopped after 5 steps"
+```
+
+Each `Step` ([agent.py:36](agent.py#L36)) is one tool call as the user sees it
+in the evidence panel:
+
+```
+Step
+├─ tool    : str           "shrink" | "compare" | ... | "query"
+├─ purpose : str           the label shown in the panel
+├─ sql     : str           the exact SQL that ran (the evidence)
+├─ ok      : bool          did it succeed
+├─ columns : list[str]
+├─ rows    : list[dict]    the aggregated result rows
+├─ notes   : list[str]     harness notes (defaulted measure, mix-effect, ...)
+└─ error   : str | None    the rejection reason if ok is False
+```
+
+That is the whole contract. `api.py` calls `asdict(agent.ask(...))` and ships
+exactly that JSON to the browser — nothing else leaves the process.
+
+**2. The wire protocol — `reply`, `tool_use`.** The shapes with brackets
+(`reply["tool_uses"]`, `tool_use["input"].get("measure")`) are *not* part of
+what the agent produces. They are the transient message format between the loop
+and the LLM, documented at [llm.py:19](llm.py#L19):
+
+```
+reply     (from llm.converse)   { "text", "tool_uses": [...], "stop" }
+tool_use  (one element)         { "id", "name", "input" }
+```
+
+- `reply` — what the model said this turn: prose (`text`) plus zero or more tool
+  requests (`tool_uses`).
+- `tool_use` — one request: `name` (which tool) and `input` (the arguments the
+  model chose: `period`, `measure`, `scope`, ...).
+- So `tool_use["input"].get("measure")` is just *"did the model specify units or
+  cost on this call?"* — read out so `router.resolve_definitions` can record
+  whether the definition was chosen or defaulted.
+
+These never leave `agent.py`. The loop consumes them and folds them into `Step`
+and `choices`.
+
+**How one becomes the other** — the loop at
+[agent.py:118](agent.py#L118):
+
+```
+llm.converse() ─► reply {text, tool_uses}
+                      │
+       for each tool_use {id, name, input}:
+                      │
+              run_tool(name, input)  ──► Step {tool, sql, rows, notes, ok}
+                      │                        │
+                      └── resolve_definitions(input.measure, input.scope) ─► choices
+                                               │
+              loop until reply has no tool_uses
+                                               ▼
+                                   Answer {text, steps, choices, warnings}
+```
+
+The agent produces **one `Answer`** — prose `text`, the `steps` (each carrying
+its SQL and rows), and the `choices` disclosure. Everything with `reply[...]` or
+`tool_use["input"]` is intermediate plumbing that is gone by the time the
+`Answer` is returned.
+
+---
+
 # Path A — the system already knows this shape
 
 > **Q: Is shrink up or down versus last month?**

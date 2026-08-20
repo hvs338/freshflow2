@@ -1,0 +1,52 @@
+{
+  "extract": {
+    "name": "Meridian Markets — 90-day extract",
+    "description": "A 10-store pilot slice of Meridian Markets.",
+    "date_range": { "start": "2026-04-01", "end": "2026-06-30" },
+    "join_keys": ["item_id", "store_id"]
+  },
+  "files": [
+    {
+      "file": "items.csv",
+      "rows": 200,
+      "grain": "one row per item",
+      "columns": [
+        { "name": "item_id", "type": "int", "notes": "Primary key. Joins to both fact files.", "joins_on": "item_id" },
+        { "name": "description", "type": "text", "notes": "Item name as merchandising refers to it." },
+        { "name": "dept", "type": "text", "notes": "Produce, Dairy, Meat, Bakery, Deli, Grocery." },
+        { "name": "category", "type": "text", "notes": "Sub-grouping within a department." },
+        { "name": "unit_of_measure", "type": "text", "notes": "LB or EA. The unit that units_sold is counted in." },
+        { "name": "case_size", "type": "int", "notes": "Units per case. Correct for every item — use it to convert shipment cases to units." },
+        { "name": "unit_cost", "type": "decimal", "notes": "Meridian's cost per unit, in dollars. Stable over the window." }
+      ]
+    },
+    {
+      "file": "shipments.csv",
+      "rows": 42550,
+      "grain": "one row per store-item-shipment",
+      "columns": [
+        { "name": "date", "type": "date", "notes": "Date the shipment arrived at the store." },
+        { "name": "store_id", "type": "int", "notes": "101–110.", "joins_on": "store_id" },
+        { "name": "banner", "type": "text", "notes": "Meridian Foods or GreenLeaf." },
+        { "name": "region", "type": "text", "notes": "Northeast, Midwest, or West." },
+        { "name": "item_id", "type": "int", "notes": "Joins to items.csv.", "joins_on": "item_id" },
+        { "name": "cases_received", "type": "int", "notes": "Cases, not units. Units received = cases_received * case_size." }
+      ]
+    },
+    {
+      "file": "sales_daily.csv",
+      "rows": 181124,
+      "grain": "one row per store-item-day with movement",
+      "notes": "Store-item-days with no movement are absent rather than zero-filled.",
+      "columns": [
+        { "name": "date", "type": "date", "notes": "Date of sale." },
+        { "name": "store_id", "type": "int", "notes": "101–110.", "joins_on": "store_id" },
+        { "name": "banner", "type": "text", "notes": "Denormalized from the store." },
+        { "name": "region", "type": "text", "notes": "Denormalized from the store." },
+        { "name": "item_id", "type": "int", "notes": "Joins to items.csv.", "joins_on": "item_id" },
+        { "name": "units_sold", "type": "int", "notes": "Units, in the item's unit_of_measure." },
+        { "name": "net_sales", "type": "decimal", "notes": "Retail dollars for that store-item-day." }
+      ]
+    }
+  ]
+}

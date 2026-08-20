@@ -33,6 +33,16 @@ NULLABLE_MEASURE = {
     ),
 }
 
+NULLABLE_SORT_BY = {
+    "type": ["string", "null"],
+    "enum": list(metrics.SORT_BY) + [None],
+    "description": (
+        "Column to rank by: 'units' (shrink units), 'cost' (shrink cost), "
+        "'revenue' (retail net_sales), or 'sold' (units sold). "
+        "Null defaults to units and the result says so."
+    ),
+}
+
 NULLABLE_SCOPE = {
     "type": ["string", "null"],
     "enum": ["fresh", "all", None],
@@ -124,18 +134,17 @@ TOOL_DEFINITIONS = {
     },
     "rank": {
         "description": (
-            "Top or bottom N of some dimension by shrink, for one month. Needs "
-            "one column to sort by, so a null measure is defaulted to units and "
-            "the result says so. Every row carries BOTH units and cost "
-            "regardless of which it sorted by -- one call is enough to compare "
-            "the two, so do not call this twice."
+            "Top or bottom N of some dimension for one month. Sorts by shrink "
+            "units/cost, revenue, or units sold. A null sort_by defaults to "
+            "shrink units and the result says so. Every row carries all shrink "
+            "columns regardless of sort key."
         ),
         "schema": {
             "type": "object",
             "properties": {
                 "period": _month("The month to rank within."),
                 "by": DIMENSION,
-                "measure": NULLABLE_MEASURE,
+                "sort_by": NULLABLE_SORT_BY,
                 "scope": NULLABLE_SCOPE,
                 "filters": FILTERS,
                 "limit": _row_limit("rows", DEFAULT_RANK_ROWS),

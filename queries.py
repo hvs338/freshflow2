@@ -49,6 +49,7 @@ CONTEXT_MEASURES = ("cost_per_shrunk_unit",)
 SELECTED_METRICS = (
     ("units_shipped", "shipped_units"),
     ("units_sold", "sold_units"),
+    ("revenue", "revenue"),
     ("shrink_units", "shrink_units"),
     ("shrink_cost", "shrink_cost"),
     ("shrink_rate", "shrink_rate"),
@@ -233,7 +234,7 @@ def rank(
     semantic_view,
     period,
     by,
-    measure=metrics.DEFAULT_MEASURE,
+    sort_by=metrics.DEFAULT_MEASURE,
     scope=metrics.DEFAULT_SCOPE,
     filters=None,
     row_limit=10,
@@ -247,7 +248,7 @@ def rank(
     definition.
     """
     row_limit = min(int(row_limit), MAX_ROWS)
-    sort_column = metrics.MEASURES[measure]["metric"]
+    sort_column = metrics.SORT_BY[sort_by]["metric"]
     direction = "ASC" if ascending else "DESC"
 
     sql = (

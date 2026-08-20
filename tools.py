@@ -162,6 +162,18 @@ class Tools:
         return raw_value
 
     @staticmethod
+    def validate_sort_by(raw_value) -> str | None:
+        """Which column to rank by, or null to accept the default."""
+        if raw_value in (None, "", "null"):
+            return None
+        if raw_value not in metrics.SORT_BY:
+            valid = ", ".join(f"'{k}'" for k in metrics.SORT_BY)
+            raise ToolError(
+                f"sort_by must be one of {valid}, or null; got {raw_value!r}."
+            )
+        return raw_value
+
+    @staticmethod
     def validate_scope(raw_value) -> str | None:
         """Fresh, all, or null. Null is a valid answer, not a missing one."""
         if raw_value in (None, "", "null"):
@@ -315,13 +327,21 @@ class Tools:
     def _handle_rank(self, tool_input: dict) -> dict:
         arguments = self._parse_common_arguments(tool_input)
         rank_by = self.validate_dimension(tool_input.get("by"), "by")
-        sort_measure, notes = self.resolve_sort_measure(arguments.measure, "Ranked")
+        sort_by = self.validate_sort_by(tool_input.get("sort_by"))
+        notes = []
+        if sort_by is None:
+            sort_by = metrics.DEFAULT_MEASURE
+            notes.append(
+                f"No sort_by specified. Ranked by "
+                f"{metrics.SORT_BY[sort_by]['label']} — tell the user that "
+                "was a default, not their choice."
+            )
 
         result = queries.rank(
             self.view,
             arguments.period,
             rank_by,
-            sort_measure,
+            sort_by,
             arguments.scope_to_query,
             arguments.filters,
             _as_int(tool_input.get("limit"), DEFAULT_RANK_ROWS),
@@ -331,7 +351,7 @@ class Tools:
             result,
             arguments,
             notes,
-            sorted_by=metrics.MEASURES[sort_measure]["metric"],
+            sorted_by=metrics.SORT_BY[sort_by]["metric"],
         )
 
     def _handle_drivers(self, tool_input: dict) -> dict:
